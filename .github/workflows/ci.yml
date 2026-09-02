@@ -1,0 +1,51 @@
+name: CI
+
+# Runs on pushes to any branch except main (main is handled by deploy.yml).
+#
+# Deliberately NOT also on `pull_request`: with both triggers, every push to a
+# branch that has an open PR runs this workflow twice for the same commit. A
+# push trigger alone covers branch work and PR branches exactly once. The
+# tradeoff is that PRs opened from forks get no CI run — acceptable here, and
+# the thing to revisit if this repo ever takes outside contributions.
+on:
+  push:
+    branches-ignore:
+      - main
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WRANGLER_SEND_METRICS: "false"
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - name: Setup Node.js
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Test
+        run: npm run test
+
+      - name: Validate wrangler config (dry run, no deploy)
+        run: npx wrangler deploy --dry-run
