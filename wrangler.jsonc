@@ -13,7 +13,7 @@
     {
       "binding": "DB",
       "database_name": "fantasy",
-      "database_id": "REPLACE_WITH_D1_ID",
+      "database_id": "a998142c-5523-4671-a4eb-5f075e14a948",
       "migrations_dir": "migrations"
     }
   ],
