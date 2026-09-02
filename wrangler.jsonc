@@ -1,0 +1,43 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "fantasy-football-agent",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-09-02",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Hourly tick. The handler reads deadlines from D1 and decides what to run,
+  // so match days are never hardcoded. Uses 1 of the 5 per-account triggers.
+  "triggers": { "crons": ["0 * * * *"] },
+
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "fantasy",
+      "database_id": "REPLACE_WITH_D1_ID",
+      "migrations_dir": "migrations"
+    }
+  ],
+
+  // Workers AI: 10,000 Neurons/day on the free plan.
+  "ai": { "binding": "AI" },
+
+  "workflows": [
+    { "name": "ingest", "binding": "INGEST", "class_name": "IngestWorkflow" },
+    { "name": "decide-commit", "binding": "DECIDE", "class_name": "DecideCommitWorkflow" }
+  ],
+
+  "vars": {
+    // Ships true. Nothing is POSTed to the live account until this is flipped.
+    "DRY_RUN": "true",
+    "SESSION_PROVIDER": "password",
+    "LLM_PROVIDER": "workers-ai",
+    "LLM_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "FANTASY_BASE_URL": "https://fantasy.ligaportugal.pt/api",
+    "MAX_TRANSFERS_PER_GW": "1",
+    "SQUAD_MARGIN": "0.10",
+    "LINEUP_ABS_FLOOR": "8",
+    "NEURON_DAILY_CAP": "8000"
+  },
+
+  "observability": { "enabled": true }
+}
