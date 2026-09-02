@@ -1,0 +1,5 @@
+# Golden fixtures are stored minified on purpose: formatting them would roughly
+# triple their size for no benefit, and they are generated, not hand-edited.
+test/fixtures/
+package-lock.json
+.wrangler/

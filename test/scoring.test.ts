@@ -47,7 +47,9 @@ for (const el of bootstrapElements) {
 /** Rebuild a `RawStats` object from a positional stats array using the file's own statKeys order. */
 function toRawStats(statKeys: readonly string[], values: readonly number[]): RawStats {
   if (values.length !== statKeys.length) {
-    throw new Error(`stats array length ${values.length} does not match statKeys length ${statKeys.length}`);
+    throw new Error(
+      `stats array length ${values.length} does not match statKeys length ${statKeys.length}`,
+    );
   }
   const record: Record<string, number> = {};
   statKeys.forEach((key, index) => {
@@ -79,7 +81,9 @@ describe('golden replay against live-N.json (GW1-4)', () => {
       for (const [elementId, totalPoints, fixtures] of file.elements) {
         const position = positionByElementId.get(elementId);
         if (position === undefined) {
-          throw new Error(`GW${file.event} element ${elementId}: no element_type in bootstrap-static.json`);
+          throw new Error(
+            `GW${file.event} element ${elementId}: no element_type in bootstrap-static.json`,
+          );
         }
 
         const perFixtureStats: RawStats[] = [];

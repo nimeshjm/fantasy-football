@@ -130,10 +130,18 @@ export interface Fixture {
   minutes: number;
 }
 
-/** One player's stat line for one gameweek — the fact-table row. */
+/**
+ * One player's stat line for one FIXTURE — the fact-table row.
+ *
+ * Keyed by fixture, not just by gameweek, because a gameweek can contain a
+ * rescheduled second fixture and the scoring divisors are per-fixture (see
+ * `scoreFixture`). Aggregating to a gameweek row before scoring would silently
+ * misprice saves, shots on target and goals conceded on a double gameweek.
+ */
 export interface GwStats extends RawStats {
   element_id: number;
   event: number;
+  fixture_id: number;
   total_points: number;
 }
 
@@ -169,7 +177,8 @@ export interface Projection {
 export type DecisionKind = 'squad' | 'lineup' | 'transfer';
 
 /** How a committed decision was actually arrived at. Always logged. */
-export type DecisionSource = 'llm' | 'llm-repaired' | 'deterministic-gate' | 'deterministic-fallback';
+export type DecisionSource =
+  'llm' | 'llm-repaired' | 'deterministic-gate' | 'deterministic-fallback';
 
 export interface Decision {
   kind: DecisionKind;
