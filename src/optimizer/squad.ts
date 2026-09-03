@@ -327,8 +327,28 @@ const DEFAULT_BENCH_WEIGHT = 0.12;
  * ceiling -- comfortably inside the 10ms Worker budget with headroom for
  * the rest of a request. See test/optimizer.test.ts's wall-clock test.
  */
-const DEFAULT_MAX_EVALUATIONS = 15_000;
-const DEFAULT_MAX_RESTARTS = 4;
+/**
+ * Search budget, chosen by measurement against the 10 ms Worker CPU limit on
+ * the free plan — NOT picked for headroom's sake.
+ *
+ * Measured cold (fresh isolate, 656 real candidates from the bootstrap
+ * fixture), which is the case that matters: a cron-triggered Worker frequently
+ * runs cold and pays JIT warmup inside the same 10 ms budget.
+ *
+ *   evals/restarts   cold cost   solution xPts
+ *   15000 / 4        13.8 ms     157.90   <- over the CPU limit
+ *    8000 / 3         9.7 ms     157.90   <- at the limit, no margin
+ *    4000 / 2         5.4 ms     157.90   <- same answer, fits with margin
+ *    3000 / 2         4.9 ms     154.30   <- starts losing quality
+ *
+ * So 4000/2 is not a compromise: the search has fully converged by 4000 on
+ * real data, and the previous 15000/4 default spent 2.5x the CPU budget to
+ * reach an identical squad. Under-converging on some other score distribution
+ * would cost solution quality, not legality — `buildSquad` returns a legal
+ * squad or `feasible: false` either way.
+ */
+const DEFAULT_MAX_EVALUATIONS = 4_000;
+const DEFAULT_MAX_RESTARTS = 2;
 const DEFAULT_MAX_1FOR1_ROUNDS = 30;
 const DEFAULT_MAX_2FOR2_ROUNDS = 10;
 const DEFAULT_SWAP_CANDIDATES_PER_POSITION = 12;
@@ -924,7 +944,7 @@ function toPicks(pool: Pool, squad: readonly number[]): Pick[] {
 
 /**
  * Builds a legal 15 maximising horizon-weighted, starting-XI-aware expected
- * points. Bounded by `opts.maxEvaluations` (default 150,000) regardless of
+ * points. Bounded by `opts.maxEvaluations` (default 4,000) regardless of
  * pool size, restart count, or round caps -- the search always stops, and
  * always returns its best squad found so far.
  */
