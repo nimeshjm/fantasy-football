@@ -481,7 +481,7 @@ describe('squad gate, end to end through the real makeAuditSink (not a capturing
 });
 
 describe('makeAuditSink (decideCommit.ts)', () => {
-  it('stamps the gate verdict onto the row id returned by the most recent record() for that decisionKind', async () => {
+  it('stamps the gate verdict onto the row id record() returned for that (decisionKind, attempt)', async () => {
     const db = makeFakeDb();
     const sink = makeAuditSink({ ...db, modelName: 'test-model' });
 
@@ -519,6 +519,49 @@ describe('makeAuditSink (decideCommit.ts)', () => {
     // No standalone fallback row was needed -- the normal path stamped the
     // existing row.
     expect(db.inserted).toHaveLength(1);
+  });
+
+  it("stamps an earlier attempt's row when a later attempt failed after it -- the squad repair path", async () => {
+    const db = makeFakeDb();
+    const sink = makeAuditSink({ ...db, modelName: 'test-model' });
+
+    // Attempt 0 answered and validated-with-errors: this is the row whose
+    // picks the repair path will fix up and gate.
+    await sink.record({
+      decisionKind: 'squad',
+      attempt: 0,
+      outcome: 'ok',
+      estNeuronsIn: 1,
+      estNeuronsOut: 1,
+      rawResponse: '{}',
+    });
+    // Attempt 1 then died at the provider, so ITS row is the most recent one
+    // logged for 'squad'. Keyed by decisionKind alone, the verdict below
+    // would land here -- on a call that produced no answer at all.
+    await sink.record({
+      decisionKind: 'squad',
+      attempt: 1,
+      outcome: 'provider-error',
+      reason: 'upstream 500',
+      estNeuronsIn: 1,
+      estNeuronsOut: 1,
+    });
+    expect(db.inserted).toHaveLength(2);
+
+    await sink.recordGate!({
+      decisionKind: 'squad',
+      attempt: 0,
+      accept: true,
+      source: 'llm',
+      llmScore: 61,
+      deterministicScore: 62,
+    });
+
+    // Row 1 (attempt 0), not row 2 (attempt 1's provider error).
+    expect(db.updated).toHaveLength(1);
+    expect(db.updated[0]!.id).toBe(1);
+    // And no standalone fallback row was needed to get it there.
+    expect(db.inserted).toHaveLength(2);
   });
 
   it('tracks row ids independently per decisionKind', async () => {

@@ -212,15 +212,18 @@ type GateEntry = Parameters<NonNullable<LlmAuditSink['recordGate']>>[0];
  * Every attempt now lands a row, whatever the outcome.
  *
  * `recordGate` stamps the gate's verdict onto that same row rather than
- * inserting a new one -- `id` is `logAiCall`'s return value for the attempt
- * `record` most recently logged for this `decisionKind`, remembered in
- * `lastIdByKind` across the two calls (see `AiCallGateUpdate`'s doc comment
- * in src/db/types.ts for why the verdict belongs on that row rather than a
- * separate one). Each `decideSquad`/`decideLineup`/`decideTransfer` call
- * site below constructs its OWN `makeAuditSink(deps)`, so in practice this
- * map only ever holds one entry at a time -- but keying by `decisionKind`
- * (rather than a single `lastId` variable) matches `LlmAuditSink`'s
- * documented contract exactly, at no extra cost.
+ * inserting a new one (see `AiCallGateUpdate`'s doc comment in
+ * src/db/types.ts for why the verdict belongs on the row carrying the answer
+ * it judged, not a separate one).
+ *
+ * Rows are remembered per (decisionKind, attempt), NOT just per kind. Both
+ * sink methods carry an `attempt`, and keying on it is what makes the stamp
+ * land on the right row in the one case where the two diverge: the squad
+ * repair path gates an EARLIER attempt's picks, so a later attempt that
+ * failed at the provider or at JSON parsing has since logged the
+ * most-recent row for that kind. Keyed by kind alone, the verdict would be
+ * stamped onto that unrelated `provider-error` row -- a wrong answer to the
+ * exact question this audit trail exists to answer.
  */
 // Exported (only) for test/gateAudit.test.ts's direct unit test of the
 // row-id-tracking/fallback logic below -- every production caller in this
@@ -231,7 +234,10 @@ export function makeAuditSink(deps: {
   updateAiCallGate: (id: number, gate: AiCallGateUpdate) => Promise<void>;
   modelName: string;
 }): LlmAuditSink {
-  const lastIdByKind = new Map<DecisionKind, number>();
+  /** Keyed `${decisionKind}:${attempt}` -- see the doc comment above for
+   * why the attempt number has to be part of the key. */
+  const rowIdByAttempt = new Map<string, number>();
+  const key = (decisionKind: DecisionKind, attempt: number): string => `${decisionKind}:${attempt}`;
 
   return {
     record: async (e: AuditEntry) => {
@@ -247,11 +253,11 @@ export function makeAuditSink(deps: {
         estNeuronsIn: e.estNeuronsIn,
         estNeuronsOut: e.estNeuronsOut,
       });
-      lastIdByKind.set(e.decisionKind, id);
+      rowIdByAttempt.set(key(e.decisionKind, e.attempt), id);
     },
     recordGate: async (e: GateEntry) => {
       const gateVerdict: GateVerdict = e.accept ? 'accept' : 'override';
-      const id = lastIdByKind.get(e.decisionKind);
+      const id = rowIdByAttempt.get(key(e.decisionKind, e.attempt));
       if (id !== undefined) {
         await deps.updateAiCallGate(id, {
           gateVerdict,
@@ -262,17 +268,15 @@ export function makeAuditSink(deps: {
         });
         return;
       }
-      // Should never happen -- the gate only runs after a `record` call has
-      // already logged the attempt it is judging, so a row id is always
-      // remembered by the time `recordGate` fires. This is a safety net,
-      // not the normal path: if that invariant is ever violated (a future
-      // caller sharing one sink across kinds in a way that clears the map,
-      // or invoking `recordGate` without a preceding `record`), the verdict
-      // must still land somewhere rather than silently vanish -- which is
-      // exactly the bug this whole feature exists to fix. The prompt names
-      // it explicitly as a gate-only record so it reads correctly in the
-      // dashboard rather than looking like a provider response that never
-      // happened.
+      // Should never happen -- the gate only runs on an answer that a
+      // `record` call already logged for that same (kind, attempt), so a row
+      // id is always remembered by the time `recordGate` fires. This is a
+      // safety net, not the normal path: if that invariant is ever violated,
+      // the verdict must still land somewhere rather than silently vanish --
+      // which is exactly the bug this whole feature exists to fix. The
+      // prompt names it explicitly as a gate-only record so it reads
+      // correctly in the dashboard rather than looking like a provider
+      // response that never happened.
       await deps.logAiCall({
         ts: new Date().toISOString(),
         decisionKind: e.decisionKind,

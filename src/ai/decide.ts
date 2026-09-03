@@ -345,18 +345,10 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
   // per `recordGate`'s documented contract. Not necessarily the final loop
   // iteration: a later attempt can fail before ever producing picks
   // (provider error, unparseable JSON), leaving `lastPicks` (and this) at
-  // the last attempt that actually validated-with-errors.
-  //
-  // Caveat `makeAuditSink` inherits from this: it stamps the gate verdict
-  // onto whichever row `record` logged MOST RECENTLY for this decisionKind,
-  // not onto the row named by this `attempt` number. If a later attempt
-  // (after the one `lastAttempt` points to) failed at the provider or at
-  // parsing, its row is what actually gets the gate stamp, tagged with an
-  // earlier attempt's number in the log. The fixed `ai_calls` schema gives
-  // the sink no way to address an arbitrary earlier row, so this is the
-  // best available behaviour, not a bug to "fix" by changing which attempt
-  // is recorded here -- just something to know when reading a gate verdict
-  // next to a `provider-error`/`skipped-*` row for the same decision.
+  // the last attempt that actually validated-with-errors. This is exactly
+  // why `makeAuditSink` keys its remembered row ids by (kind, attempt)
+  // rather than by kind alone -- keyed by kind, a repaired squad's verdict
+  // would be stamped onto that later, unrelated failure's row.
   let lastAttempt = -1;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
