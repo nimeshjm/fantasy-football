@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdtempSync } from 'node:fs';
+import { mkdtempSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { promisify } from 'node:util';
@@ -33,7 +33,8 @@ const WRANGLER_CONFIG = './wrangler.jsonc';
 // `npm run test` runs both. CI and deploy need no changes.
 
 /**
- * Bundles the Worker exactly as a deploy would, and returns the outdir.
+ * Bundles the Worker exactly as a deploy would, and returns the entry point
+ * of the bundle along with its module root.
  *
  * `wrangler deploy --dry-run` is the real bundler over the real
  * `wrangler.jsonc` (module resolution, `nodejs_compat` shims, aliasing), and
@@ -41,13 +42,30 @@ const WRANGLER_CONFIG = './wrangler.jsonc';
  * evaluate the bundle's module scope, which is precisely the gap
  * test/workers/globalScope.workers.test.ts exists to close: the output is fed
  * to workerd as an auxiliary Worker so that module scope actually runs.
+ *
+ * Runs once, when the project starts. That makes this a `vitest run` guard:
+ * under `npm run test:watch` the bundle is not rebuilt as `src/` changes, so
+ * a green workers project there says nothing about the current source. CI and
+ * deploy both use `vitest run`, so the guard they get is accurate.
  */
-async function bundleWorker(): Promise<string> {
+async function bundleWorker(): Promise<{ scriptPath: string; modulesRoot: string }> {
   const outdir = mkdtempSync(path.join(tmpdir(), 'ff-worker-bundle-'));
   await execFileAsync('npx', ['wrangler', 'deploy', '--dry-run', '--outdir', outdir], {
     cwd: root,
   });
-  return outdir;
+
+  // Discovered rather than assumed to be `index.js`: the basename tracks
+  // `main` in wrangler.jsonc, so hardcoding it would turn "the entry point
+  // was renamed" into a bare ENOENT that reads like a broken harness.
+  const entries = readdirSync(outdir).filter((name) => name.endsWith('.js'));
+  const [entry] = entries;
+  if (entries.length !== 1 || entry === undefined) {
+    throw new Error(
+      `Expected exactly one .js entry in the Worker bundle, found ${entries.length}: ${entries.join(', ')}`,
+    );
+  }
+
+  return { scriptPath: path.join(outdir, entry), modulesRoot: outdir };
 }
 
 /**
@@ -63,14 +81,35 @@ async function bundleWorker(): Promise<string> {
  */
 const MAX_SUPPORTED_COMPATIBILITY_DATE = '2026-08-22';
 
+/**
+ * Mirrors wrangler.jsonc's compatibility settings rather than duplicating
+ * them, clamping the date to what the bundled workerd accepts.
+ *
+ * `experimental_readRawConfig` is the same API @cloudflare/vitest-pool-workers
+ * uses internally, but it is experimental and wrangler moves often here. A
+ * failure is caught rather than thrown, because throwing during config load
+ * would take down the node project's 187 tests as well; falling back leaves
+ * any real mismatch to surface as a scoped workerd startup error instead.
+ */
 function workerdCompatibility(): { compatibilityDate: string; compatibilityFlags: string[] } {
-  const { rawConfig } = experimental_readRawConfig({ config: WRANGLER_CONFIG });
-  const configured = rawConfig.compatibility_date ?? MAX_SUPPORTED_COMPATIBILITY_DATE;
-  return {
-    compatibilityDate:
-      configured > MAX_SUPPORTED_COMPATIBILITY_DATE ? MAX_SUPPORTED_COMPATIBILITY_DATE : configured,
-    compatibilityFlags: [...(rawConfig.compatibility_flags ?? [])],
-  };
+  const clamp = (date: string) =>
+    date > MAX_SUPPORTED_COMPATIBILITY_DATE ? MAX_SUPPORTED_COMPATIBILITY_DATE : date;
+
+  try {
+    const { rawConfig } = experimental_readRawConfig({ config: WRANGLER_CONFIG });
+    return {
+      compatibilityDate: clamp(rawConfig.compatibility_date ?? MAX_SUPPORTED_COMPATIBILITY_DATE),
+      compatibilityFlags: [...(rawConfig.compatibility_flags ?? [])],
+    };
+  } catch (error) {
+    console.warn(
+      `[vitest.config] could not read ${WRANGLER_CONFIG} compatibility settings, falling back to defaults: ${error}`,
+    );
+    return {
+      compatibilityDate: MAX_SUPPORTED_COMPATIBILITY_DATE,
+      compatibilityFlags: ['nodejs_compat'],
+    };
+  }
 }
 
 export default defineConfig({
@@ -92,7 +131,7 @@ export default defineConfig({
       {
         plugins: [
           cloudflareTest(async () => {
-            const outdir = await bundleWorker();
+            const bundle = await bundleWorker();
             const compatibility = workerdCompatibility();
 
             return {
@@ -125,8 +164,7 @@ export default defineConfig({
                   {
                     name: 'worker-under-test',
                     modules: true,
-                    modulesRoot: outdir,
-                    scriptPath: path.join(outdir, 'index.js'),
+                    ...bundle,
                     ...compatibility,
                   },
                 ],
