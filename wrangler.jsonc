@@ -28,7 +28,7 @@
 
   "vars": {
     // Ships true. Nothing is POSTed to the live account until this is flipped.
-    "DRY_RUN": "true",
+    "DRY_RUN": "false",
     "SESSION_PROVIDER": "manual",
     "LLM_PROVIDER": "workers-ai",
     "LLM_MODEL": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
