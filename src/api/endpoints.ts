@@ -198,8 +198,37 @@ export interface EntryCreateRequest {
   favourite_team: number;
   region: number;
   kit: unknown;
-  /** Exactly 15 picks. */
+  /**
+   * Required. The live API rejects a submission without it:
+   * `terms_agreed: [{ message: "You must agree to the Terms and Conditions.",
+   * code: "required" }]`. Not discoverable from the JS bundle — only a real
+   * POST surfaced it.
+   */
+  terms_agreed: boolean;
+  /**
+   * Exactly 15 picks, and they MUST be ordered by `element_type` ascending
+   * (GK, then DEF, then MID, then FWD). Submitting them in squad-position
+   * order fails with
+   * `{ code: "squad_not_type_order", message: "Elements must be submitted in
+   * type order. We received type 2 after type 4" }`.
+   *
+   * Use `sortPicksByTypeOrder` rather than assembling this by hand.
+   */
   picks: EntryCreatePick[];
+}
+
+/**
+ * Orders picks by position type for `entry-create/`, which requires type
+ * order and rejects anything else. Squad-position order (1-11 starters then
+ * 12-15 bench) interleaves types and is exactly what the API refuses.
+ */
+export function sortPicksByTypeOrder<T extends { element: number }>(
+  picks: readonly T[],
+  elementTypeById: ReadonlyMap<number, number>,
+): T[] {
+  return [...picks].sort(
+    (a, b) => (elementTypeById.get(a.element) ?? 0) - (elementTypeById.get(b.element) ?? 0),
+  );
 }
 
 export function createEntry(

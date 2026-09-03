@@ -26,6 +26,7 @@ import {
   type Element,
   type Pick,
   type TransferMove,
+  type DecisionKind,
 } from '../types';
 import { CONTEXT_WINDOW_TOKENS, estimateNeurons, type LlmProvider } from './provider';
 import {
@@ -59,6 +60,29 @@ import {
 
 /** Neurons remaining in / spent from today's cap. Injected so this module
  * never touches `src/db` directly. */
+/**
+ * Audit sink for LLM attempts.
+ *
+ * Every attempt is recorded, successful or not. This exists because the first
+ * live run produced two `deterministic-fallback` decisions with an empty
+ * `ai_calls` table, and there was no way to tell from the data whether the
+ * model had been called and refused, or never called at all — `logAiCall` had
+ * been defined and wired in the workflow but never actually invoked from here.
+ * An audit trail that only records successes cannot answer the one question
+ * you ask it.
+ */
+export interface LlmAuditSink {
+  record(entry: {
+    decisionKind: DecisionKind;
+    attempt: number;
+    outcome: 'ok' | 'skipped-prompt-too-large' | 'skipped-budget' | 'provider-error';
+    reason?: string;
+    estNeuronsIn: number;
+    estNeuronsOut: number;
+    rawResponse?: string;
+  }): void | Promise<void>;
+}
+
 export interface NeuronBudget {
   /** Neurons remaining in today's cap, checked before spending any. */
   remaining(): number | Promise<number>;
@@ -141,22 +165,48 @@ async function callLlm(
   prompt: BuiltPrompt,
   jsonSchema: Record<string, unknown>,
   maxTokens: number,
+  audit?: LlmAuditSink,
+  decisionKind: DecisionKind = 'squad',
+  attempt = 0,
 ): Promise<{ ok: true; text: string } | { ok: false; reason: string }> {
   const inputTokens = estimateTokens(prompt.system) + estimateTokens(prompt.user);
+
+  // Audit failures too, and never let a failing audit sink break a decision.
+  const note = async (
+    outcome: 'ok' | 'skipped-prompt-too-large' | 'skipped-budget' | 'provider-error',
+    reason?: string,
+    rawResponse?: string,
+  ): Promise<void> => {
+    if (!audit) return;
+    try {
+      await audit.record({
+        decisionKind,
+        attempt,
+        outcome,
+        reason,
+        estNeuronsIn: estimateNeurons(inputTokens, 0),
+        estNeuronsOut: estimateNeurons(0, maxTokens),
+        rawResponse,
+      });
+    } catch {
+      /* observability must never take down the decision path */
+    }
+  };
 
   try {
     assertPromptFits(`${prompt.system}\n${prompt.user}`, CONTEXT_WINDOW_TOKENS - maxTokens);
   } catch (e) {
-    return { ok: false, reason: e instanceof Error ? e.message : String(e) };
+    const reason = e instanceof Error ? e.message : String(e);
+    await note('skipped-prompt-too-large', reason);
+    return { ok: false, reason };
   }
 
   const neuronsNeeded = estimateNeurons(inputTokens, maxTokens);
   const remaining = await budget.remaining();
   if (remaining < neuronsNeeded) {
-    return {
-      ok: false,
-      reason: `neuron budget exhausted: ${remaining.toFixed(0)} remaining, ~${neuronsNeeded.toFixed(0)} needed`,
-    };
+    const reason = `neuron budget exhausted: ${remaining.toFixed(0)} remaining, ~${neuronsNeeded.toFixed(0)} needed`;
+    await note('skipped-budget', reason);
+    return { ok: false, reason };
   }
 
   const result = await provider.complete({
@@ -174,7 +224,11 @@ async function callLlm(
   // way (a refusal still runs the model).
   await budget.record(neuronsNeeded);
 
-  if (!result.ok) return { ok: false, reason: result.error };
+  if (!result.ok) {
+    await note('provider-error', result.error);
+    return { ok: false, reason: result.error };
+  }
+  await note('ok', undefined, result.text);
   return { ok: true, text: result.text };
 }
 
@@ -195,6 +249,8 @@ function formatErrors(errors: { rule: string; detail: string }[]): string {
 // ---------------------------------------------------------------------------
 
 export interface DecideSquadInput {
+  /** Optional audit sink; every LLM attempt is recorded through it. */
+  audit?: LlmAuditSink;
   shortlist: ShortlistEntry[];
   elements: Element[];
   provider: LlmProvider;
@@ -205,7 +261,7 @@ export interface DecideSquadInput {
 }
 
 export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
-  const { shortlist, elements, provider, budget, baseline } = input;
+  const { shortlist, elements, provider, budget, baseline, audit } = input;
   const maxTokens = input.maxAnswerTokens ?? DEFAULT_MAX_ANSWER_TOKENS.squad;
 
   const fallback = (): Decision => ({
@@ -240,6 +296,9 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
       withViolationNote(basePrompt, violationNote),
       SQUAD_SCHEMA,
       maxTokens,
+      audit,
+      'squad',
+      attempt,
     );
     if (!call.ok) {
       violationNote = call.reason;
@@ -392,6 +451,8 @@ function gateAndReturnSquad(
 // ---------------------------------------------------------------------------
 
 export interface DecideLineupInput {
+  /** Optional audit sink; every LLM attempt is recorded through it. */
+  audit?: LlmAuditSink;
   owned: ShortlistEntry[];
   elements: Element[];
   provider: LlmProvider;
@@ -419,7 +480,7 @@ function hardLineupViolations(picks: Pick[], elements: Element[]): string[] {
 }
 
 export async function decideLineup(input: DecideLineupInput): Promise<Decision> {
-  const { owned, elements, provider, budget, baseline } = input;
+  const { owned, elements, provider, budget, baseline, audit } = input;
   const maxTokens = input.maxAnswerTokens ?? DEFAULT_MAX_ANSWER_TOKENS.lineup;
   const ownedPlayers = toOwnedPlayers(owned);
 
@@ -440,6 +501,9 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
       withViolationNote(basePrompt, violationNote),
       LINEUP_SCHEMA,
       maxTokens,
+      audit,
+      'lineup',
+      attempt,
     );
     if (!call.ok) {
       violationNote = call.reason;
@@ -533,6 +597,8 @@ export interface TransferCandidateInput {
 }
 
 export interface DecideTransferInput {
+  /** Optional audit sink; every LLM attempt is recorded through it. */
+  audit?: LlmAuditSink;
   squad: ShortlistEntry[];
   candidates: TransferCandidateInput[];
   bankTenths: number;
@@ -543,7 +609,7 @@ export interface DecideTransferInput {
 }
 
 export async function decideTransfer(input: DecideTransferInput): Promise<Decision> {
-  const { squad, candidates, bankTenths, provider, budget, baseline } = input;
+  const { squad, candidates, bankTenths, provider, budget, baseline, audit } = input;
   const maxTokens = input.maxAnswerTokens ?? DEFAULT_MAX_ANSWER_TOKENS.transfer;
 
   const fallback = (reasoning: string): Decision => ({
@@ -577,6 +643,9 @@ export async function decideTransfer(input: DecideTransferInput): Promise<Decisi
       withViolationNote(basePrompt, violationNote),
       TRANSFER_SCHEMA,
       maxTokens,
+      audit,
+      'transfer',
+      attempt,
     );
     if (!call.ok) {
       violationNote = call.reason;

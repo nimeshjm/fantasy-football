@@ -1,3 +1,4 @@
+import { sortPicksByTypeOrder } from '../src/api/endpoints';
 /**
  * Tests for the integration layer: src/ownedPlayers.ts, src/baseline.ts, and
  * src/workflows/decideCommit.ts's `runDecisionCore` (driven with fake
@@ -401,6 +402,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     elements,
     teams: TEAMS,
     projections,
+    modelName: 'test-model',
     eventId: 1,
     config: baseConfig(),
     existingSquad: null,
@@ -633,5 +635,39 @@ describe('decideSquad + shortlist wiring sanity', () => {
     // deliberately-declining) LLM path and falls back cleanly.
     expect(decision.source).toBe('deterministic-fallback');
     expect(decision.picks).toEqual(deterministicSquad.picks);
+  });
+});
+
+describe('entry-create payload (learned from a real 400)', () => {
+  it('orders picks by element_type, which the API requires', () => {
+    // The live API rejects squad-position order with
+    // `squad_not_type_order: "We received type 2 after type 4"`, because
+    // positions 1-15 interleave types. Only a real POST revealed this.
+    const elementTypeById = new Map<number, number>([
+      [10, 4], // FWD
+      [20, 1], // GK
+      [30, 3], // MID
+      [40, 2], // DEF
+    ]);
+    const positionOrder = [{ element: 10 }, { element: 20 }, { element: 30 }, { element: 40 }];
+
+    const sorted = sortPicksByTypeOrder(positionOrder, elementTypeById);
+
+    expect(sorted.map((p) => p.element)).toEqual([20, 40, 30, 10]);
+    const types = sorted.map((p) => elementTypeById.get(p.element)!);
+    expect(types).toEqual([...types].sort((a, b) => a - b));
+  });
+
+  it('is stable within a position type, preserving the optimizer ordering', () => {
+    const elementTypeById = new Map<number, number>([
+      [1, 2],
+      [2, 2],
+      [3, 2],
+    ]);
+    const sorted = sortPicksByTypeOrder(
+      [{ element: 3 }, { element: 1 }, { element: 2 }],
+      elementTypeById,
+    );
+    expect(sorted.map((p) => p.element)).toEqual([3, 1, 2]);
   });
 });

@@ -47,6 +47,7 @@ import {
   updateMyTeam as apiUpdateMyTeam,
   type EntryCreateRequest,
   type MyTeamResponse,
+  sortPicksByTypeOrder,
 } from '../api/endpoints';
 import { ApiValidationError } from '../api/client';
 import {
@@ -63,7 +64,13 @@ import {
   type AiCallInput,
   type TeamRow,
 } from '../db';
-import { decideLineup, decideSquad, decideTransfer, type NeuronBudget } from '../ai/decide';
+import {
+  decideLineup,
+  decideSquad,
+  decideTransfer,
+  type LlmAuditSink,
+  type NeuronBudget,
+} from '../ai/decide';
 import type { ShortlistEntry } from '../ai/prompts';
 import { selectProvider, type LlmProvider } from '../ai/provider';
 import { candidateTransfers } from '../optimizer/transfers';
@@ -169,6 +176,40 @@ export interface ExistingSquad {
   cumulativeTransfers: number;
 }
 
+type AuditEntry = Parameters<LlmAuditSink['record']>[0];
+
+/**
+ * Adapts the `LlmAuditSink` shape onto the `ai_calls` row shape.
+ *
+ * `logAiCall` was previously wired as a port here but never invoked from
+ * anywhere, so `ai_calls` stayed empty. That made a `deterministic-fallback`
+ * decision undiagnosable from the data: there was no way to distinguish the
+ * model refusing the JSON schema from the model never having been called.
+ * Every attempt now lands a row, whatever the outcome.
+ */
+function makeAuditSink(deps: {
+  logAiCall: (input: AiCallInput) => Promise<void>;
+  modelName: string;
+}): LlmAuditSink {
+  return {
+    record: async (e: AuditEntry) => {
+      await deps.logAiCall({
+        ts: new Date().toISOString(),
+        decisionKind: e.decisionKind,
+        model: deps.modelName,
+        prompt: `attempt ${e.attempt}`,
+        rawResponse: e.rawResponse ?? e.reason ?? undefined,
+        schemaValid: e.outcome === 'ok',
+        validationOutcome: e.outcome,
+        repaired: false,
+        gateVerdict: undefined,
+        estNeuronsIn: e.estNeuronsIn,
+        estNeuronsOut: e.estNeuronsOut,
+      });
+    },
+  };
+}
+
 export interface DecisionCoreDeps {
   elements: Element[];
   teams: TeamRow[];
@@ -178,6 +219,8 @@ export interface DecisionCoreDeps {
   existingSquad: ExistingSquad | null;
   provider: LlmProvider;
   neuronBudget: NeuronBudget;
+  /** Model id, recorded on every ai_calls row. */
+  modelName: string;
 
   /** Re-reads fresh `now_cost`/`selling_price` immediately before a write --
    * prices move hourly and `price_change_locked_until` exists, so a
@@ -262,6 +305,7 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
   );
 
   const squadDecision = await decideSquad({
+    audit: makeAuditSink(deps),
     shortlist: shortlistEntries,
     elements: deps.elements,
     provider: deps.provider,
@@ -282,6 +326,7 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
     deps.teams,
   );
   const lineupDecision = await decideLineup({
+    audit: makeAuditSink(deps),
     owned: ownedEntries,
     elements: deps.elements,
     provider: deps.provider,
@@ -304,19 +349,25 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
   }
 
   const elementById = new Map(deps.elements.map((e) => [e.id, e] as const));
+  const elementTypeById = new Map(deps.elements.map((e) => [e.id, e.element_type as number]));
+
+  // Both of these were learned from a real 400, not from the JS bundle:
+  // picks must be in element_type order, and terms_agreed is required.
+  const orderedPicks = sortPicksByTypeOrder(
+    finalPicks.map((p) => ({
+      element: p.element,
+      purchase_price: elementById.get(p.element)?.now_cost ?? 0,
+    })),
+    elementTypeById,
+  );
+
   const payload: EntryCreateRequest = {
-    // Unverified against the live API (see src/api/endpoints.ts's
-    // EntryCreateRequest doc) -- favourite_team/region/kit have no
-    // confirmed valid values. `kit: null` and small plausible ids are used;
-    // a 400 here is an expected, logged outcome, not a bug.
     name: 'Fantasy Agent',
     favourite_team: 1,
     region: 1,
     kit: null,
-    picks: finalPicks.map((p) => ({
-      element: p.element,
-      purchase_price: elementById.get(p.element)?.now_cost ?? 0,
-    })),
+    terms_agreed: true,
+    picks: orderedPicks,
   };
 
   const created = await deps.createEntry(payload);
@@ -429,6 +480,7 @@ async function runTransferAndLineup(
       .filter((c): c is NonNullable<typeof c> => c !== null);
 
     transferDecision = await decideTransfer({
+      audit: makeAuditSink(deps),
       squad: squadEntries,
       candidates: candidateInputs,
       bankTenths: squad.bank,
@@ -455,6 +507,7 @@ async function runTransferAndLineup(
     deps.teams,
   );
   const lineupDecision = await decideLineup({
+    audit: makeAuditSink(deps),
     owned: ownedEntries,
     elements: deps.elements,
     provider: deps.provider,
@@ -584,6 +637,7 @@ async function runLineupOnly(
     deps.teams,
   );
   const lineupDecision = await decideLineup({
+    audit: makeAuditSink(deps),
     owned: ownedEntries,
     elements: deps.elements,
     provider: deps.provider,
@@ -847,6 +901,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         },
         logAction: (input) => logAction(env.DB, input),
         logAiCall: (input) => logAiCall(env.DB, input),
+        modelName: env.LLM_MODEL,
         saveSquadState: async (picks, bank, cumulativeTransfers) => {
           const entry = loaded.existingSquad?.entry ?? loaded.entry;
           if (!entry) return;
