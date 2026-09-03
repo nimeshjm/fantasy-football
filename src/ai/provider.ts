@@ -114,10 +114,36 @@ export class WorkersAiProvider implements LlmProvider {
   }
 }
 
+/**
+ * Pulls the model's answer out of the Workers AI response envelope.
+ *
+ * The shape depends on whether JSON mode is active, which is the trap this
+ * function exists to handle. In plain text mode `response` is a string. With
+ * `response_format: { type: 'json_schema' }` the runtime parses the answer for
+ * you and `response` is an **object**.
+ *
+ * The original implementation accepted only a string, so in JSON mode — the
+ * only mode this agent uses — every call was discarded as unparsable *after*
+ * the Neurons had been spent. It cost ~530 Neurons and two fallback decisions
+ * before the audit trail made it visible.
+ *
+ * Callers want text they can `JSON.parse`, so an object response is
+ * re-serialised rather than returned as-is.
+ */
 function extractResponseText(result: unknown): string | null {
-  if (result && typeof result === 'object') {
-    const response = (result as Record<string, unknown>).response;
-    if (typeof response === 'string' && response.length > 0) return response;
+  if (!result || typeof result !== 'object') return null;
+  const response = (result as Record<string, unknown>).response;
+
+  if (typeof response === 'string') {
+    return response.length > 0 ? response : null;
+  }
+  // JSON mode: already-parsed object (or array) straight from the runtime.
+  if (response && typeof response === 'object') {
+    try {
+      return JSON.stringify(response);
+    } catch {
+      return null;
+    }
   }
   return null;
 }
@@ -159,3 +185,6 @@ export function selectProvider(env: LlmEnv): LlmProvider {
   }
   throw new Error(`Unknown LLM_PROVIDER: "${providerName}"`);
 }
+
+/** Test-only export of the envelope parser; see test/provider.test.ts. */
+export const extractResponseTextForTest = extractResponseText;
