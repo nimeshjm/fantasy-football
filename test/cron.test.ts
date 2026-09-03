@@ -13,6 +13,12 @@ import {
   type CronPorts,
   type MinimalEvent,
 } from '../src/cron';
+import {
+  planSessionAlert,
+  SESSION_ALERT_THRESHOLD,
+  SESSION_BEAT_FRESH_WINDOW_MS,
+} from '../src/sessionHealth';
+import type { SessionBeat } from '../src/db';
 
 function event(overrides: Partial<MinimalEvent> = {}): MinimalEvent {
   return { id: 5, deadline_time: '2026-09-10T18:00:00Z', data_checked: false, ...overrides };
@@ -107,21 +113,61 @@ describe('planCronActions', () => {
 // runScheduledTick
 // ---------------------------------------------------------------------------
 
+const NOW = new Date('2026-09-10T16:30:00Z');
+
+function beat(overrides: Partial<SessionBeat> = {}): SessionBeat {
+  return {
+    ts: NOW.toISOString(),
+    ok: false,
+    entry: null,
+    fingerprint: 'abc123abc123',
+    error: null,
+    ...overrides,
+  };
+}
+
+/** `n` failed beats an hour apart ending at `NOW` -- what a genuinely dead
+ * cookie looks like in `actions_log`, newest first. */
+function failedBeats(n: number): SessionBeat[] {
+  return Array.from({ length: n }, (_, i) =>
+    beat({ ts: new Date(NOW.getTime() - i * 3_600_000).toISOString() }),
+  );
+}
+
 function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
   logged: unknown[];
   decideCreated: { id: string; params: unknown }[];
   ingestCreated: { id: string; params: unknown }[];
+  sessionOks: { at: string; fingerprint?: string }[];
+  alertsSent: unknown[];
+  alertOpenWrites: boolean[];
 } {
   const logged: unknown[] = [];
   const decideCreated: { id: string; params: unknown }[] = [];
   const ingestCreated: { id: string; params: unknown }[] = [];
+  const sessionOks: { at: string; fingerprint?: string }[] = [];
+  const alertsSent: unknown[] = [];
+  const alertOpenWrites: boolean[] = [];
   const base: CronPorts = {
     isEnabled: vi.fn().mockResolvedValue(true),
     getPreviousEvents: vi.fn().mockResolvedValue([]),
     refreshBootstrap: vi.fn().mockResolvedValue([]),
-    checkSession: vi.fn().mockResolvedValue({ healthy: true, entry: 1 }),
+    checkSession: vi
+      .fn()
+      .mockResolvedValue({ healthy: true, entry: 1, cookieFingerprint: 'abc123abc123' }),
     logAction: vi.fn(async (input: unknown) => {
       logged.push(input);
+    }),
+    recordSessionOk: vi.fn(async (input: { at: string; fingerprint?: string }) => {
+      sessionOks.push(input);
+    }),
+    getSessionAlertState: vi.fn().mockResolvedValue({ beats: [], alertOpen: false, okState: null }),
+    setSessionAlertOpen: vi.fn(async (open: boolean) => {
+      alertOpenWrites.push(open);
+    }),
+    sendAlert: vi.fn(async (payload: unknown) => {
+      alertsSent.push(payload);
+      return { delivered: true };
     }),
     createDecideWorkflow: vi.fn(async (id: string, params: unknown) => {
       decideCreated.push({ id, params });
@@ -129,9 +175,18 @@ function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
     createIngestWorkflow: vi.fn(async (id: string, params: unknown) => {
       ingestCreated.push({ id, params });
     }),
-    now: () => new Date('2026-09-10T16:30:00Z'),
+    now: () => NOW,
   };
-  return { ...base, ...overrides, logged, decideCreated, ingestCreated };
+  return {
+    ...base,
+    ...overrides,
+    logged,
+    decideCreated,
+    ingestCreated,
+    sessionOks,
+    alertsSent,
+    alertOpenWrites,
+  };
 }
 
 describe('runScheduledTick', () => {
@@ -146,6 +201,14 @@ describe('runScheduledTick', () => {
     expect(ports.logAction).not.toHaveBeenCalled();
     expect(ports.createDecideWorkflow).not.toHaveBeenCalled();
     expect(ports.createIngestWorkflow).not.toHaveBeenCalled();
+    // The kill switch is absolute: it also silences the session alert, which
+    // is a real hole -- a disabled agent says nothing about a dead cookie.
+    // Documented in the README rather than papered over here, because "no
+    // writes at all" is the contract this test exists to pin.
+    expect(ports.recordSessionOk).not.toHaveBeenCalled();
+    expect(ports.getSessionAlertState).not.toHaveBeenCalled();
+    expect(ports.setSessionAlertOpen).not.toHaveBeenCalled();
+    expect(ports.sendAlert).not.toHaveBeenCalled();
     expect(ports.logged).toEqual([]);
   });
 

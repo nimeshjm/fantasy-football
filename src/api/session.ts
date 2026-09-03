@@ -55,6 +55,41 @@ function normalizeManualCookie(raw: string): string {
 }
 
 /**
+ * The `sessionid` value out of a Cookie header value, or the whole string if
+ * it carries no `name=` pairs (a bare pasted value).
+ *
+ * Exists so a cookie can be FINGERPRINTED by its identity rather than its
+ * formatting: `normalizeManualCookie` turns `abc` into `sessionid=abc`, so
+ * hashing the header would make re-pasting the same cookie in the other
+ * format look like a rotation and needlessly restart the lifetime
+ * measurement (see `fingerprintCookie` in src/sessionHealth.ts).
+ */
+export function sessionIdOf(cookie: string): string {
+  for (const part of cookie.split(';')) {
+    const [name, ...rest] = part.trim().split('=');
+    if (name === 'sessionid' && rest.length > 0) return rest.join('=');
+  }
+  return cookie.trim();
+}
+
+/**
+ * The cookie to use, WITHOUT ever logging in or writing to the store.
+ *
+ * `getSession` cannot be used on a read path: under `manual` it throws when
+ * `FANTASY_SESSION_COOKIE` is unset (and on an unknown provider), and under
+ * `password` a cache miss performs a live login and saves the result. Both
+ * are wrong for the dashboard, which renders on a GET and must not 500 on a
+ * missing secret or mutate the session row on a page view.
+ */
+export async function peekSession(env: FantasyEnv, db: SessionStore): Promise<string | null> {
+  if (env.SESSION_PROVIDER === 'manual') {
+    return env.FANTASY_SESSION_COOKIE ? normalizeManualCookie(env.FANTASY_SESSION_COOKIE) : null;
+  }
+  const cached = await db.getSession();
+  return cached?.cookie ?? null;
+}
+
+/**
  * Resolve a Cookie header value to use against the API, per
  * `env.SESSION_PROVIDER`. For 'password', the result is cached via `db` so
  * repeated invocations don't re-login; for 'manual' there is nothing to

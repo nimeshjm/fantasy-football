@@ -1,19 +1,18 @@
 /**
  * Token-gated, server-rendered HTML status dashboard (`GET /`).
  *
- * Gating: `DASHBOARD_TOKEN` must both be configured AND match. Returns 404
- * (never 401) whenever either check fails, so an unconfigured or
- * wrong-token request cannot distinguish "no dashboard here" from "wrong
- * token" -- per the task brief, this avoids advertising that a token-gated
- * endpoint exists at all. The token comparison itself is constant-time
- * (`timingSafeEqual`) so response timing cannot be used to brute-force it.
+ * Gating lives in src/adminAuth.ts, shared with the login-probe route:
+ * `DASHBOARD_TOKEN` must both be configured AND match, and every failure is
+ * a 404 rather than a 401 so an unconfigured or wrong-token request cannot
+ * distinguish "no dashboard here" from "wrong token".
  *
  * Every interpolated value is routed through `escapeHtml` -- names, news
  * text and AI reasoning are free text from the live API/LLM and must never
  * be trusted as markup.
  */
 
-import { checkSessionHealth } from './api/session';
+import { isAuthorized, notFound } from './adminAuth';
+import { checkSessionHealth, peekSession } from './api/session';
 import {
   getAllElements,
   getCurrentAndNextEvent,
@@ -23,6 +22,8 @@ import {
   getRecentActions,
   getProjectionStrategy,
   getRecentAiCalls,
+  getRecentSessionBeats,
+  getSessionOkState,
   getTeams,
   isDryRun,
   isEnabled,
@@ -31,24 +32,23 @@ import {
   type ElementRow,
 } from './db';
 import { createSessionStore } from './sessionStore';
+import { failureStreak, SESSION_ALERT_OPEN_KEY } from './sessionHealth';
+import { getConfig } from './db';
 import { parseConfig, type Env } from './env';
 import { POSITION_SHORT, type Pick } from './types';
 
-/** Constant-time-ish string comparison: the loop always runs the same
- * number of iterations regardless of where the strings first differ, so
- * response time doesn't leak how many leading characters matched. */
-function timingSafeEqual(a: string, b: string): boolean {
-  const enc = new TextEncoder();
-  const aBytes = enc.encode(a);
-  const bBytes = enc.encode(b);
-  const len = Math.max(aBytes.length, bBytes.length, 32);
-  let diff = aBytes.length ^ bBytes.length;
-  for (let i = 0; i < len; i++) {
-    const x = i < aBytes.length ? aBytes[i]! : 0;
-    const y = i < bBytes.length ? bBytes[i]! : 0;
-    diff |= x ^ y;
-  }
-  return diff === 0;
+/** How long the current cookie has been working, in whole days/hours. The
+ * headline number issue #14 wants -- but a LOWER BOUND: `first_ok_at` is
+ * stamped at the first healthy tick after this shipped, not at paste time,
+ * so a cookie pasted weeks earlier reads as young. Only a cookie whose
+ * `first_ok_at` was set from its own paste gives a true lifetime. */
+function describeAge(firstOkAt: string | null): string {
+  if (firstOkAt === null) return 'age unknown';
+  const ms = Date.now() - new Date(firstOkAt).getTime();
+  if (!Number.isFinite(ms) || ms < 0) return 'age unknown';
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours < 24) return `${hours}h old`;
+  return `${Math.floor(hours / 24)}d old`;
 }
 
 function escapeHtml(value: unknown): string {
@@ -61,40 +61,13 @@ function escapeHtml(value: unknown): string {
     .replace(/'/g, '&#39;');
 }
 
-function extractToken(request: Request): string | null {
-  const url = new URL(request.url);
-  const fromQuery = url.searchParams.get('token');
-  if (fromQuery) return fromQuery;
-  const header = request.headers.get('x-dashboard-token');
-  if (header) return header;
-  const auth = request.headers.get('authorization');
-  if (auth?.startsWith('Bearer ')) return auth.slice('Bearer '.length);
-  return null;
-}
-
-/**
- * A fresh 404 per call, deliberately a factory rather than a shared constant.
- *
- * Two reasons, either of which is sufficient. First, constructing a Response
- * with a body at module scope is a disallowed global-scope operation in
- * workerd and Cloudflare rejects the upload outright (error 10021) — a
- * module-level `new Response(...)` will not deploy. Second, a Response body
- * can only be consumed once, so handing the same instance to two different
- * requests would serve a used body to the second one.
- */
-function notFound(): Response {
-  return new Response('Not found', { status: 404 });
-}
-
 /**
  * Handles `GET /`. Returns 404 for anything that isn't a correctly-tokened
  * dashboard request; never distinguishes "unconfigured" from "wrong token"
  * in its response.
  */
 export async function handleDashboard(request: Request, env: Env): Promise<Response> {
-  if (!env.DASHBOARD_TOKEN) return notFound();
-  const token = extractToken(request);
-  if (!token || !timingSafeEqual(token, env.DASHBOARD_TOKEN)) return notFound();
+  if (!isAuthorized(request, env)) return notFound();
 
   const html = await renderDashboardHtml(env);
   return new Response(html, {
@@ -193,18 +166,38 @@ async function renderDashboardHtml(env: Env): Promise<string> {
   // say which one produced the xPts column is unreadable.
   const strategy = await getProjectionStrategy(env.DB);
 
+  // `peekSession`, not `getSession`: this renders on a GET, so it must not
+  // 500 when FANTASY_SESSION_COOKIE is unset (getSession throws under
+  // `manual`) and must not perform a login and write the session store on a
+  // cache miss (getSession does, under `password`).
   const sessionStore = createSessionStore(env);
-  const session = await sessionStore.getSession();
+  const cookie = await peekSession(env, sessionStore);
   let sessionHealthy: boolean | null = null;
-  if (session?.cookie) {
+  let entry: number | null = null;
+  if (cookie) {
     try {
-      const health = await checkSessionHealth(env, session.cookie);
+      const health = await checkSessionHealth(env, cookie);
       sessionHealthy = health.healthy;
+      // The live check is the only place `entry` is reliably available under
+      // `SESSION_PROVIDER=manual`: nothing writes it to the session row, so
+      // this is what stops the squad panel below from being permanently
+      // blank.
+      entry = health.entry ?? null;
     } catch {
       sessionHealthy = false;
     }
   }
-  const entry = session?.entry ?? null;
+
+  // Session observability (issue #14): how long the current cookie has been
+  // working, how long it has been failing, and whether anyone was told.
+  const [okState, beats, alertOpenRaw] = await Promise.all([
+    getSessionOkState(env.DB),
+    getRecentSessionBeats(env.DB, 24),
+    getConfig(env.DB, SESSION_ALERT_OPEN_KEY),
+  ]);
+  const streak = failureStreak(beats);
+  const alertOpen = alertOpenRaw === '1';
+  const cookieAge = describeAge(okState?.firstOkAt ?? null);
 
   const [{ current, next }, elements, teams, recentActions, recentAiCalls] = await Promise.all([
     getCurrentAndNextEvent(env.DB),
@@ -250,6 +243,11 @@ async function renderDashboardHtml(env: Env): Promise<string> {
   <span class="${sessionHealthy === true ? 'ok' : sessionHealthy === false ? 'bad' : ''}">
     Session: ${sessionHealthy === null ? 'unknown' : sessionHealthy ? 'healthy' : 'UNHEALTHY'}
   </span>
+  <span class="${streak > 0 ? 'bad' : ''}">
+    Last ok: ${escapeHtml(okState?.lastOkAt ?? 'never')}${streak > 0 ? ` (${escapeHtml(streak)} failed beats since)` : ''}
+  </span>
+  <span>Cookie: ${escapeHtml(okState?.cookieFingerprint ?? '-')} (${escapeHtml(cookieAge)})</span>
+  <span class="${alertOpen ? 'bad' : ''}">Alert: ${alertOpen ? 'OPEN' : 'none'}</span>
   <span>Projections: ${escapeHtml(strategy)}</span>
   <span>Neurons today: ${escapeHtml(neuronsToday.toFixed(0))} / ${escapeHtml(config.neuronDailyCap)}</span>
   <span>Current GW: ${escapeHtml(current?.name ?? '-')}</span>
