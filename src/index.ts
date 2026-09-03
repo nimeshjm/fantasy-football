@@ -9,16 +9,30 @@
  */
 
 import { handleDashboard } from './dashboard';
+import { handleLoginProbe } from './loginProbe';
+import { notFound } from './adminAuth';
 import { runScheduledTick, type CronPorts, type MinimalEvent } from './cron';
 import type { Env } from './env';
 import { FantasyApiClient } from './api/client';
 import { getBootstrapStatic } from './api/endpoints';
 import { checkSessionHealth, getSession as getFantasySession } from './api/session';
 import { createSessionStore } from './sessionStore';
+import { sendWebhookAlert } from './alert';
+import {
+  fingerprintCookie,
+  nextSessionOkState,
+  SESSION_ALERT_OPEN_KEY,
+  SESSION_ALERT_THRESHOLD,
+} from './sessionHealth';
 import {
   getAllEvents,
+  getConfig,
+  getRecentSessionBeats,
+  getSessionOkState,
   isEnabled,
   logAction,
+  setConfig,
+  setSessionOk,
   upsertElements,
   upsertEvents,
   upsertTeams,
@@ -59,10 +73,38 @@ function buildCronPorts(env: Env): CronPorts {
 
     checkSession: async () => {
       const cookie = await getFantasySession(env, sessionStore);
-      return checkSessionHealth(env, cookie);
+      const health = await checkSessionHealth(env, cookie);
+      // The digest is computed HERE, where the cookie already is, so
+      // src/cron.ts is never a place a session cookie can reach.
+      return { ...health, cookieFingerprint: await fingerprintCookie(cookie) };
     },
 
     logAction: (input) => logAction(env.DB, input),
+
+    // Read-modify-write, composed here rather than in src/db so the
+    // decision stays a pure function (see src/sessionHealth.ts) and the SQL
+    // stays a dumb three-column upsert. The cron is the only writer of these
+    // columns, so the non-atomicity is not a race -- which is part of why the
+    // login probe must never write the session row.
+    recordSessionOk: async (input) => {
+      const previous = await getSessionOkState(env.DB);
+      await setSessionOk(env.DB, nextSessionOkState(previous, input));
+    },
+
+    getSessionAlertState: async () => {
+      const [beats, alertOpenRaw, okState] = await Promise.all([
+        getRecentSessionBeats(env.DB, SESSION_ALERT_THRESHOLD),
+        getConfig(env.DB, SESSION_ALERT_OPEN_KEY),
+        getSessionOkState(env.DB),
+      ]);
+      return { beats, alertOpen: alertOpenRaw === '1', okState };
+    },
+
+    setSessionAlertOpen: async (open) => {
+      await setConfig(env.DB, SESSION_ALERT_OPEN_KEY, open ? '1' : '0');
+    },
+
+    sendAlert: (payload) => sendWebhookAlert(env, payload),
 
     createDecideWorkflow: async (id, params) => {
       await env.DECIDE.create({ id, params });
@@ -82,7 +124,15 @@ export default {
     if (request.method === 'GET' && url.pathname === '/') {
       return handleDashboard(request, env);
     }
-    return new Response('Not found', { status: 404 });
+    // POST-only on purpose: this submits real credentials to the live site,
+    // so a GET would let any prefetcher that sees the ?token= URL trigger a
+    // login attempt. A GET to it therefore falls through to the 404 below.
+    if (request.method === 'POST' && url.pathname === '/admin/login-probe') {
+      return handleLoginProbe(request, env);
+    }
+    // Byte-identical to what the deploy-contract test asserts, and dependent
+    // on no binding -- see test/workers/deployContract.workers.test.ts.
+    return notFound();
   },
 
   async scheduled(_event: ScheduledController, env: Env): Promise<void> {

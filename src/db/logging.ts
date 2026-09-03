@@ -5,7 +5,15 @@ import {
   type AiCallGateUpdate,
   type AiCallInput,
   type GateVerdict,
+  type SessionBeat,
 } from './types';
+
+/** `actions_log.kind` of the hourly session heartbeat. One row per enabled
+ * tick, healthy or not -- see the rationale in src/cron.ts. */
+export const SESSION_HEALTH_KIND = 'session-health';
+
+/** `actions_log.kind` of an outward alert attempt. */
+export const SESSION_ALERT_KIND = 'session-alert';
 
 /** One row read back from `actions_log`. `intent`/`response` are stored as
  * JSON TEXT (see `logAction`) and parsed back here -- never hand the raw
@@ -203,6 +211,46 @@ export async function getRecentActions(db: D1Database, limit = 20): Promise<Acti
     source: r.source,
     ok: toBool(r.ok),
   }));
+}
+
+/**
+ * The most recent session heartbeats, newest first.
+ *
+ * `getRecentActions` cannot serve this: it returns the newest rows of ANY
+ * kind, so on a busy decide tick it would return no heartbeats at all. The
+ * `kind` filter is what makes the row sequence a streak.
+ *
+ * `id DESC` breaks ties on `ts`. `idx_actions_log_ts` is on `ts` alone, so
+ * SQLite walks it backwards and filters `kind`, stopping at LIMIT --
+ * `session-health` is the densest kind at ~24 rows/day, so no extra index
+ * earns its keep.
+ */
+export async function getRecentSessionBeats(db: D1Database, limit: number): Promise<SessionBeat[]> {
+  const { results } = await db
+    .prepare(
+      'SELECT ts, ok, response FROM actions_log WHERE kind = ? ORDER BY ts DESC, id DESC LIMIT ?',
+    )
+    .bind(SESSION_HEALTH_KIND, limit)
+    .all<{ ts: string; ok: number; response: string | null }>();
+  return results.map(toSessionBeat);
+}
+
+/** The one parser for a heartbeat row's `response` JSON. Both the alert
+ * planner and the dashboard read these rows; two parsers for one column
+ * would drift. */
+function toSessionBeat(row: { ts: string; ok: number; response: string | null }): SessionBeat {
+  const response = safeParse(row.response);
+  const fields = (typeof response === 'object' && response !== null ? response : {}) as Record<
+    string,
+    unknown
+  >;
+  return {
+    ts: row.ts,
+    ok: toBool(row.ok),
+    entry: typeof fields.entry === 'number' ? fields.entry : null,
+    fingerprint: typeof fields.fingerprint === 'string' ? fields.fingerprint : null,
+    error: typeof fields.error === 'string' ? fields.error : null,
+  };
 }
 
 interface RawAiCallRow {

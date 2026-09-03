@@ -44,6 +44,9 @@ export interface Env {
   FANTASY_PASSWORD?: string;
   FANTASY_SESSION_COOKIE?: string;
   DASHBOARD_TOKEN?: string;
+  /** Where a dead-session alert is POSTed. Unset means alerting is off, so
+   * CI and local dev post nowhere. Must be https -- see src/alert.ts. */
+  ALERT_WEBHOOK_URL?: string;
 }
 
 const DEFAULT_MAX_TRANSFERS_PER_GW = 1;

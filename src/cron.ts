@@ -34,7 +34,16 @@
  * happens to also fire on an adjacent tick nothing double-dispatches.
  */
 
-import type { ActionLogInput } from './db';
+import type { ActionLogInput, SessionBeat, SessionOkState } from './db';
+import {
+  failureStreak,
+  planSessionAlert,
+  SESSION_ALERT_THRESHOLD,
+  type AlertDelivery,
+  type SessionAlertPayload,
+  type SessionAlertAction,
+  type SessionFailureReason,
+} from './sessionHealth';
 
 export type DeadlineAction = 'decide' | 'xi-recheck' | 'none';
 
@@ -106,8 +115,25 @@ export interface CronPorts {
    * see src/index.ts). Returns the freshly-fetched events for flip
    * detection. */
   refreshBootstrap(): Promise<MinimalEvent[]>;
-  checkSession(): Promise<{ healthy: boolean; entry?: number }>;
+  /** Resolves the cookie and asks `me/` whether it still authenticates.
+   * Returns the cookie's FINGERPRINT, never the cookie -- src/cron.ts must
+   * not be a place a session cookie can reach. */
+  checkSession(): Promise<{ healthy: boolean; entry?: number; cookieFingerprint?: string }>;
   logAction(input: ActionLogInput): Promise<void>;
+  /** Records a healthy heartbeat against the `session` row (`last_ok_at`,
+   * and `first_ok_at` when the cookie is new). */
+  recordSessionOk(input: { at: string; fingerprint?: string }): Promise<void>;
+  /** The recent heartbeats, the alert latch and the `session` row's ok
+   * columns, read together so the read-after-write ordering the alert
+   * planner depends on lives at exactly one call site. */
+  getSessionAlertState(): Promise<{
+    beats: SessionBeat[];
+    alertOpen: boolean;
+    okState: SessionOkState | null;
+  }>;
+  setSessionAlertOpen(open: boolean): Promise<void>;
+  /** Never throws: failure is a returned `{delivered: false}`. */
+  sendAlert(payload: SessionAlertPayload): Promise<AlertDelivery>;
   createDecideWorkflow(
     id: string,
     params: { mode: 'full' | 'lineup-only'; eventId: number },
@@ -121,6 +147,9 @@ export interface CronTickResult {
   deadlineAction: DeadlineAction;
   ingestDispatched: number[];
   sessionHealthy: boolean | null;
+  /** What the tick did about the session alert. `null` when the alert block
+   * itself failed (it is logged and swallowed -- see `runSessionCheck`). */
+  alertAction: SessionAlertAction | null;
 }
 
 /**
@@ -138,50 +167,25 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
         deadlineAction: 'none',
         ingestDispatched: [],
         sessionHealthy: null,
+        alertAction: null,
       };
     }
+
+    const now = ports.now();
+
+    // BEFORE refreshBootstrap, deliberately. The heartbeat used to run after
+    // it, which meant a thrown bootstrap fetch went to the outer catch and
+    // the tick wrote NO session-health row at all -- so the loudest failure
+    // mode (the agent fully dead) produced zero failing beats and, once
+    // alerting existed, zero alerts. The check has no dependency on
+    // bootstrap, so hoisting it makes "every enabled tick writes exactly one
+    // beat" unconditionally true, which is the premise the streak counter
+    // needs.
+    const { sessionHealthy, alertAction } = await runSessionCheck(ports, now);
 
     const previousEvents = await ports.getPreviousEvents();
     const freshEvents = await ports.refreshBootstrap();
 
-    let sessionHealthy: boolean | null = null;
-    try {
-      const health = await ports.checkSession();
-      sessionHealthy = health.healthy;
-      // Logged on EVERY tick, healthy or not, deliberately.
-      //
-      // This used to log only failures, which made a healthy session
-      // indistinguishable from the cron having stopped firing: both look like
-      // an empty table. Diagnosing "is it working?" meant cross-referencing
-      // elements.updated_at to prove a tick had run at all. Logging both
-      // outcomes makes this row a heartbeat -- absence now means the tick
-      // itself did not happen, which is a different and much more useful
-      // signal. Costs 24 rows/day against a 100k/day budget.
-      await ports.logAction({
-        ts: new Date().toISOString(),
-        kind: 'session-health',
-        intent: { check: 'session' },
-        response: { healthy: health.healthy, entry: health.entry ?? null },
-        dryRun: false,
-        source: 'cron',
-        ok: health.healthy,
-      });
-    } catch (err) {
-      // A failed health check is itself a dead-session signal -- surface it,
-      // never swallow it silently.
-      sessionHealthy = false;
-      await ports.logAction({
-        ts: new Date().toISOString(),
-        kind: 'session-health',
-        intent: { check: 'session' },
-        response: { error: err instanceof Error ? err.message : String(err) },
-        dryRun: false,
-        source: 'cron',
-        ok: false,
-      });
-    }
-
-    const now = ports.now();
     const nextEvent = findNextEvent(freshEvents, now);
     const plan = planCronActions({ now, nextEvent, previousEvents, freshEvents });
 
@@ -206,6 +210,7 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
       deadlineAction: plan.deadlineAction,
       ingestDispatched: plan.ingestEventIds,
       sessionHealthy,
+      alertAction,
     };
   } catch (err) {
     // Belt-and-suspenders: nothing above should throw uncaught, but the
@@ -224,8 +229,164 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
       // Logging itself failed -- nothing more can be done without risking
       // an uncaught throw from the scheduled handler.
     }
-    return { skipped: false, deadlineAction: 'none', ingestDispatched: [], sessionHealthy: null };
+    return {
+      skipped: false,
+      deadlineAction: 'none',
+      ingestDispatched: [],
+      sessionHealthy: null,
+      alertAction: null,
+    };
   }
+}
+
+/**
+ * The session half of a tick: one heartbeat row, the `session` row's ok
+ * columns, and at most one outward alert.
+ *
+ * Every step after the heartbeat gets its OWN try/catch, and that structure
+ * is load-bearing twice over:
+ *
+ *  - Sharing the heartbeat's try would let a D1 hiccup on a HEALTHY tick
+ *    fall into the failure path and write a second `session-health` row with
+ *    `ok: false` -- corrupting the very streak the alert reads.
+ *  - Letting any of it throw would abort the tick before the DECIDE
+ *    dispatch. A missed deadline is worse than a stale news feed, so
+ *    observability must never be able to cost a gameweek.
+ */
+async function runSessionCheck(
+  ports: CronPorts,
+  now: Date,
+): Promise<{ sessionHealthy: boolean | null; alertAction: SessionAlertAction | null }> {
+  const ts = now.toISOString();
+  let sessionHealthy: boolean | null = null;
+  let fingerprint: string | undefined;
+  let reason: SessionFailureReason = 'unauthenticated';
+  let detail: string | undefined;
+
+  // Logged on EVERY tick, healthy or not, deliberately.
+  //
+  // This used to log only failures, which made a healthy session
+  // indistinguishable from the cron having stopped firing: both look like an
+  // empty table. Diagnosing "is it working?" meant cross-referencing
+  // elements.updated_at to prove a tick had run at all. Logging both outcomes
+  // makes this row a heartbeat -- absence now means the tick itself did not
+  // happen, which is a different and much more useful signal. Costs 24
+  // rows/day against a 100k/day budget.
+  //
+  // `fingerprint` rides along in the response because `session.first_ok_at`
+  // is overwritten on a re-paste: without it, the previous cookie's observed
+  // lifetime is lost forever. actions_log is never pruned, so (ts,
+  // fingerprint, ok) per beat makes lifetime-per-cookie a permanent query.
+  try {
+    const health = await ports.checkSession();
+    sessionHealthy = health.healthy;
+    fingerprint = health.cookieFingerprint;
+    await ports.logAction({
+      ts,
+      kind: 'session-health',
+      intent: { check: 'session' },
+      response: {
+        healthy: health.healthy,
+        entry: health.entry ?? null,
+        fingerprint: health.cookieFingerprint ?? null,
+      },
+      dryRun: false,
+      source: 'cron',
+      ok: health.healthy,
+    });
+  } catch (err) {
+    // A failed health check is itself a dead-session signal -- surface it,
+    // never swallow it silently.
+    sessionHealthy = false;
+    reason = 'error';
+    detail = err instanceof Error ? err.message : String(err);
+    await ports.logAction({
+      ts,
+      kind: 'session-health',
+      intent: { check: 'session' },
+      response: { error: detail },
+      dryRun: false,
+      source: 'cron',
+      ok: false,
+    });
+  }
+
+  if (sessionHealthy) {
+    try {
+      await ports.recordSessionOk({ at: ts, fingerprint });
+    } catch {
+      // The heartbeat row already recorded the truth; the denormalised
+      // `session` columns are a convenience for the dashboard and the
+      // lifetime measurement, never the source of truth.
+    }
+  }
+
+  try {
+    return { sessionHealthy, alertAction: await runAlert(ports, now, reason, detail) };
+  } catch {
+    return { sessionHealthy, alertAction: null };
+  }
+}
+
+/** Decides and performs at most one alert action. Reads the beats AFTER the
+ * heartbeat above has been written, so `beats[0]` is this tick. */
+async function runAlert(
+  ports: CronPorts,
+  now: Date,
+  reason: SessionFailureReason,
+  detail: string | undefined,
+): Promise<SessionAlertAction> {
+  const { beats, alertOpen, okState } = await ports.getSessionAlertState();
+  const action = planSessionAlert({
+    now,
+    beats,
+    threshold: SESSION_ALERT_THRESHOLD,
+    alertOpen,
+  });
+
+  if (action === 'clear') {
+    await ports.setSessionAlertOpen(false);
+    return action;
+  }
+  if (action !== 'send') return action;
+
+  const failures = beats.slice(0, failureStreak(beats));
+  const payload: SessionAlertPayload = {
+    streak: failures.length,
+    threshold: SESSION_ALERT_THRESHOLD,
+    reason,
+    detail,
+    firstFailureAt: failures[failures.length - 1]?.ts ?? now.toISOString(),
+    lastFailureAt: failures[0]?.ts ?? now.toISOString(),
+    // Prefer the denormalised session columns; fall back to the heartbeat
+    // archive, which survives even when the session row was never written.
+    lastOkAt: okState?.lastOkAt ?? beats.find((b) => b.ok)?.ts ?? null,
+    firstOkAt: okState?.firstOkAt ?? null,
+    cookieFingerprint:
+      okState?.cookieFingerprint ??
+      failures.find((b) => b.fingerprint !== null)?.fingerprint ??
+      null,
+    worker: 'fantasy-football-agent',
+  };
+
+  const delivery = await ports.sendAlert(payload);
+  // Latch ONLY on delivery. Setting it regardless would mean an unset or
+  // broken webhook silences the alerting this exists to add; leaving it
+  // closed makes the next tick retry, and leaves a failed `session-alert`
+  // row on the dashboard every hour until someone fixes the URL.
+  if (delivery.delivered) {
+    await ports.setSessionAlertOpen(true);
+  }
+  await ports.logAction({
+    ts: now.toISOString(),
+    kind: 'session-alert',
+    intent: { streak: payload.streak, threshold: payload.threshold, reason: payload.reason },
+    response: { delivered: delivery.delivered, detail: delivery.detail ?? null },
+    dryRun: false,
+    source: 'cron',
+    ok: delivery.delivered,
+  });
+  return action;
 }
 
 /** The relevant "next" event for deadline dispatch: the earliest event whose

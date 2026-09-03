@@ -183,6 +183,48 @@ export interface SessionRow {
   lastOkAt: string | null;
 }
 
+/**
+ * The heartbeat's view of the `session` row: the three columns the hourly
+ * tick writes, deliberately NOT part of `SessionRow`.
+ *
+ * Kept separate so the new columns never travel through
+ * `getSession`/`setSession`, whose `cookie` column src/sessionStore.ts
+ * documents itself as the only reader/writer of. `setSessionOk` names only
+ * these three columns, so a password-provider login (the only other writer
+ * of this row) leaves them intact, and this writer leaves `cookie` intact.
+ */
+export interface SessionOkState {
+  /** Last heartbeat that proved the session good. */
+  lastOkAt: string | null;
+  /** When the CURRENT cookie first proved good. Restarts whenever
+   * `cookieFingerprint` changes, so (failure time - firstOkAt) is the
+   * observed lifetime of one cookie rather than the age of the column. */
+  firstOkAt: string | null;
+  /** SHA-256 prefix of the sessionid -- enough to notice a re-paste, never
+   * enough to reconstruct the cookie. See `fingerprintCookie`. */
+  cookieFingerprint: string | null;
+}
+
+/**
+ * One `actions_log` session heartbeat, projected down to what the alert
+ * planner and the dashboard need. Everything but `ts`/`ok` is parsed out of
+ * the row's `response` JSON, so every field is nullable: rows written before
+ * a field existed simply lack it.
+ */
+export interface SessionBeat {
+  ts: string;
+  ok: boolean;
+  /** The authenticated team id. Present only on a healthy beat. */
+  entry: number | null;
+  /** Which cookie this beat was made with -- the archive that makes
+   * per-cookie lifetime measurable after a re-paste has overwritten
+   * `session.first_ok_at`. */
+  fingerprint: string | null;
+  /** The thrown message, when the beat failed by exception (401/403 from the
+   * site, or a transport failure) rather than by `player: null`. */
+  error: string | null;
+}
+
 export interface ConfigRow {
   key: string;
   value: string;
