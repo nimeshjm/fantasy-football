@@ -18,7 +18,7 @@ export default defineConfig({
   },
   resolve: {
     alias: {
-      'cloudflare:workers': path.resolve(__dirname, 'test/stubs/cloudflareWorkers.ts'),
+      'cloudflare:workers': path.resolve(import.meta.dirname, 'test/stubs/cloudflareWorkers.ts'),
     },
   },
 });
