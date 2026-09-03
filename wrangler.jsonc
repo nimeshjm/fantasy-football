@@ -27,7 +27,8 @@
   ],
 
   "vars": {
-    // Ships true. Nothing is POSTed to the live account until this is flipped.
+    // Live: writes go to the real account. Flipped from true in 2c9db47 once
+    // the rails were in place; config.enabled in D1 is the kill switch.
     "DRY_RUN": "false",
     "SESSION_PROVIDER": "manual",
     "LLM_PROVIDER": "workers-ai",
