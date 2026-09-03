@@ -318,6 +318,18 @@ export class FantasyApiClient {
       const contentType = response.headers.get('content-type') ?? '';
       if (!contentType.includes('application/json')) {
         const text = await response.text().catch(() => '');
+
+        // A 2xx with an empty body is a SUCCESS, not a malformed response.
+        // `entry-create/` returns exactly this, and treating it as an error
+        // was actively dangerous: the team was created on the server while the
+        // agent recorded a failure. A retry on that false failure could have
+        // submitted a second squad. The agent recovered only because it
+        // re-reads the entry from `me/` each run rather than trusting its own
+        // log — but the log was still wrong, which is its own problem.
+        if (response.ok && text.trim().length === 0) {
+          return { data: {} as T, response };
+        }
+
         throw new ApiResponseError(
           response.status,
           `Expected JSON from ${method} ${path}, got content-type "${contentType}": ${text.slice(0, 200)}`,

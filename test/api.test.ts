@@ -8,6 +8,7 @@ import {
   FantasyApiClient,
   extractCookieValue,
   getSetCookies,
+  ApiResponseError,
 } from '../src/api/client';
 import { getEventLive, getFixtures, getMyTeam, updateMyTeam } from '../src/api/endpoints';
 import {
@@ -377,5 +378,41 @@ describe('session.ts', () => {
     const result = await checkSessionHealth(env, 'sessionid=live');
 
     expect(result).toEqual({ healthy: true, entry: 555 });
+  });
+});
+
+describe('non-JSON responses', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('treats a 2xx with an empty body as success, not a malformed response', async () => {
+    // entry-create/ replies with no content-type and an empty body on success.
+    // Throwing here made the agent log a failure for a team that HAD been
+    // created — and a retry on that false failure could have submitted a
+    // second squad.
+    fetchMock.mockResolvedValueOnce(new Response('', { status: 201 }));
+
+    const client = new FantasyApiClient('https://example.test/api');
+    await expect(client.post('entry-create/', { picks: [] })).resolves.toBeDefined();
+  });
+
+  it('still rejects a non-JSON body that actually has content', async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response('<html>gateway error</html>', {
+        status: 200,
+        headers: { 'content-type': 'text/html' },
+      }),
+    );
+
+    const client = new FantasyApiClient('https://example.test/api');
+    await expect(client.post('entry-create/', {})).rejects.toBeInstanceOf(ApiResponseError);
   });
 });
