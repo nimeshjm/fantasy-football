@@ -13,16 +13,22 @@ import { describe, expect, it } from 'vitest';
  * it is structurally incapable of catching this. The node tests never import
  * the worker entry under workerd's restrictions.
  *
- * The correct guard is to load the worker inside workerd, but
- * @cloudflare/vitest-pool-workers 0.5 (pinned by wrangler 3) cannot emulate
- * this Worker's `ai` or `workflows` bindings, so that needs a wrangler 4
- * upgrade — tracked separately.
+ * The real guard now exists: test/workers/globalScope.workers.test.ts loads
+ * the deployable bundle inside workerd, where module scope is evaluated
+ * outside any request context and a violation stops the run. That is the
+ * authority; it needed the wrangler 4 / @cloudflare/vitest-pool-workers 0.22
+ * upgrade, which has landed.
  *
- * This is the cheap stand-in until then: a static check that the constructs
- * workerd forbids in global scope do not appear at module top level. It is a
- * heuristic, not a runtime check — it reasons about indentation, so it catches
- * the plain top-level declaration that actually bit us and would miss, say, a
- * construction hidden inside a top-level IIFE.
+ * This static check is kept alongside it, not as a stand-in but for the one
+ * thing the runtime guard cannot do: name the offending source file and line.
+ * workerd reports the violation against the bundle (`index.js:2554`), so this
+ * is what turns that into `src/dashboard.ts:36`. It also needs no workerd
+ * startup, so it fails in milliseconds.
+ *
+ * It is a heuristic and stays one — it reasons about indentation, so it
+ * catches the plain top-level declaration that actually bit us and would
+ * miss, say, a construction hidden inside a top-level IIFE. Everything it
+ * misses, the workerd guard catches.
  */
 
 const FORBIDDEN_AT_MODULE_SCOPE = [
