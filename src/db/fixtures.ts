@@ -70,3 +70,14 @@ export async function getFixtureById(db: D1Database, id: number): Promise<Fixtur
     .first<RawFixtureRow>();
   return row === null ? null : fromRaw(row);
 }
+
+/** Every fixture across the whole season (~306 rows for 18 teams -- one
+ * cheap query). Added for `fitTeamRatings` (src/model/ratings.ts), which
+ * fits attack/defence from every FINISHED fixture seen so far, not just one
+ * gameweek's -- `getFixturesForEvent` alone cannot serve that. */
+export async function getAllFixtures(db: D1Database): Promise<FixtureRow[]> {
+  const { results } = await db
+    .prepare(`SELECT ${COLUMNS.join(', ')} FROM fixtures ORDER BY kickoff_time`)
+    .all<RawFixtureRow>();
+  return results.map(fromRaw);
+}
