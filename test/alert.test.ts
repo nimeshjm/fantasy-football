@@ -63,6 +63,33 @@ describe('sendWebhookAlert', () => {
     expect(typeof body.text).toBe('string');
   });
 
+  it('sends the summary under both text and content, so one URL suits Slack or Discord', async () => {
+    // Discord requires one of content/embeds/file and rejects a body with
+    // none of them as `400 Cannot send an empty message`; Slack renders
+    // `text`. Sending both is what avoids a per-service adapter.
+    fetchMock.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+
+    await sendWebhookAlert({ ALERT_WEBHOOK_URL: URL_OK }, payload());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.content).toBe(body.text);
+    expect(body.content).toContain('fantasy session dead');
+  });
+
+  it('names the secret to re-paste in the summary itself', async () => {
+    // The alert fires at most once per incident, so this string may be the
+    // only thing anyone ever reads about the outage -- it has to say what to
+    // do without a trip to the dashboard.
+    fetchMock.mockResolvedValueOnce(new Response('ok', { status: 200 }));
+
+    await sendWebhookAlert({ ALERT_WEBHOOK_URL: URL_OK }, payload());
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    const body = JSON.parse(init.body as string) as Record<string, unknown>;
+    expect(body.text).toContain('FANTASY_SESSION_COOKIE');
+  });
+
   it('reports a non-2xx response as undelivered rather than throwing', async () => {
     // Undelivered must be a value, not an exception: the caller latches
     // `session_alert_open` only on real delivery.
