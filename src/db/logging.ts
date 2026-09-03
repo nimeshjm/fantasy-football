@@ -1,4 +1,11 @@
-import { toBool, toBit, type ActionLogInput, type AiCallInput } from './types';
+import {
+  toBool,
+  toBit,
+  type ActionLogInput,
+  type AiCallGateUpdate,
+  type AiCallInput,
+  type GateVerdict,
+} from './types';
 
 /** One row read back from `actions_log`. `intent`/`response` are stored as
  * JSON TEXT (see `logAction`) and parsed back here -- never hand the raw
@@ -25,7 +32,11 @@ export interface AiCallRow {
   schemaValid: boolean | null;
   validationOutcome: string | null;
   repaired: boolean;
-  gateVerdict: string | null;
+  gateVerdict: GateVerdict | null;
+  gateSource: string | null;
+  gateOverrideReason: string | null;
+  llmScore: number | null;
+  deterministicScore: number | null;
   estNeuronsIn: number;
   estNeuronsOut: number;
 }
@@ -50,14 +61,25 @@ export async function logAction(db: D1Database, input: ActionLogInput): Promise<
     .run();
 }
 
-/** Logs one call to the LLM (prompt, raw response, and how it was judged).
- * One bound-param insert per call. */
-export async function logAiCall(db: D1Database, input: AiCallInput): Promise<void> {
-  await db
+/**
+ * Logs one call to the LLM (prompt, raw response, and how it was judged).
+ * One bound-param insert per call.
+ *
+ * Returns the inserted row's id. The gate runs AFTER the call it judges, so
+ * the verdict cannot be part of this insert; the caller keeps the id and
+ * hands it to `updateAiCallGate` once the gate has settled. Recording the
+ * verdict on the row carrying the prompt and raw response it judged -- rather
+ * than as a separate, promptless row -- is the whole point: an override is
+ * only diagnosable next to the model output that provoked it.
+ */
+export async function logAiCall(db: D1Database, input: AiCallInput): Promise<number> {
+  const result = await db
     .prepare(
       'INSERT INTO ai_calls ' +
-        '(ts, decision_kind, model, prompt, raw_response, schema_valid, validation_outcome, repaired, gate_verdict, est_neurons_in, est_neurons_out) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        '(ts, decision_kind, model, prompt, raw_response, schema_valid, validation_outcome, repaired, ' +
+        'gate_verdict, gate_source, gate_override_reason, llm_score, deterministic_score, ' +
+        'est_neurons_in, est_neurons_out) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       input.ts,
@@ -69,8 +91,41 @@ export async function logAiCall(db: D1Database, input: AiCallInput): Promise<voi
       input.validationOutcome ?? null,
       toBit(input.repaired),
       input.gateVerdict ?? null,
+      input.gateSource ?? null,
+      input.gateOverrideReason ?? null,
+      input.llmScore ?? null,
+      input.deterministicScore ?? null,
       input.estNeuronsIn,
       input.estNeuronsOut,
+    )
+    .run();
+  return result.meta.last_row_id;
+}
+
+/**
+ * Stamps the gate's verdict onto an already-logged `ai_calls` row.
+ *
+ * Separate from `logAiCall` because of the ordering: the row is written when
+ * the provider answers, and the gate only runs once that answer has parsed
+ * and validated. `id` comes from the `logAiCall` that recorded the attempt.
+ */
+export async function updateAiCallGate(
+  db: D1Database,
+  id: number,
+  gate: AiCallGateUpdate,
+): Promise<void> {
+  await db
+    .prepare(
+      'UPDATE ai_calls SET gate_verdict = ?, gate_source = ?, gate_override_reason = ?, ' +
+        'llm_score = ?, deterministic_score = ? WHERE id = ?',
+    )
+    .bind(
+      gate.gateVerdict,
+      gate.gateSource,
+      gate.gateOverrideReason ?? null,
+      gate.llmScore ?? null,
+      gate.deterministicScore ?? null,
+      id,
     )
     .run();
 }
@@ -161,6 +216,10 @@ interface RawAiCallRow {
   validation_outcome: string | null;
   repaired: number;
   gate_verdict: string | null;
+  gate_source: string | null;
+  gate_override_reason: string | null;
+  llm_score: number | null;
+  deterministic_score: number | null;
   est_neurons_in: number;
   est_neurons_out: number;
 }
@@ -174,7 +233,8 @@ export async function getRecentAiCalls(db: D1Database, limit = 20): Promise<AiCa
   const { results } = await db
     .prepare(
       'SELECT id, ts, decision_kind, model, prompt, raw_response, schema_valid, validation_outcome, ' +
-        'repaired, gate_verdict, est_neurons_in, est_neurons_out FROM ai_calls ORDER BY ts DESC LIMIT ?',
+        'repaired, gate_verdict, gate_source, gate_override_reason, llm_score, deterministic_score, ' +
+        'est_neurons_in, est_neurons_out FROM ai_calls ORDER BY ts DESC LIMIT ?',
     )
     .bind(limit)
     .all<RawAiCallRow>();
@@ -188,7 +248,11 @@ export async function getRecentAiCalls(db: D1Database, limit = 20): Promise<AiCa
     schemaValid: r.schema_valid === null ? null : toBool(r.schema_valid),
     validationOutcome: r.validation_outcome,
     repaired: toBool(r.repaired),
-    gateVerdict: r.gate_verdict,
+    gateVerdict: r.gate_verdict === null ? null : (r.gate_verdict as GateVerdict),
+    gateSource: r.gate_source,
+    gateOverrideReason: r.gate_override_reason,
+    llmScore: r.llm_score,
+    deterministicScore: r.deterministic_score,
     estNeuronsIn: r.est_neurons_in,
     estNeuronsOut: r.est_neurons_out,
   }));

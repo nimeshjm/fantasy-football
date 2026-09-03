@@ -130,6 +130,17 @@ export interface ActionLogInput {
   ok: boolean;
 }
 
+/**
+ * Whether the sanity gate let the model's answer through, or replaced it
+ * with the deterministic optimum. Written to `ai_calls.gate_verdict`.
+ *
+ * NULL (the absence of a verdict) is a third, meaningful state: the gate
+ * only runs after a schema-valid, rules-legal LLM answer, so a NULL verdict
+ * says the attempt never got that far. Never write a placeholder here to
+ * avoid the null -- that erases the distinction the column exists for.
+ */
+export type GateVerdict = 'accept' | 'override';
+
 export interface AiCallInput {
   ts: string;
   decisionKind: string;
@@ -139,9 +150,31 @@ export interface AiCallInput {
   schemaValid?: boolean;
   validationOutcome?: string;
   repaired: boolean;
-  gateVerdict?: string;
+  gateVerdict?: GateVerdict;
+  /** `DecisionSource` the gate settled on ('llm' on accept,
+   * 'deterministic-gate' on override). */
+  gateSource?: string;
+  /** `gateDecision`'s human-readable justification. Set iff overridden. */
+  gateOverrideReason?: string;
+  /** Deterministic-model score of the LLM's own answer, and of the
+   * deterministic optimum it was measured against. Both recorded on accept
+   * as well as override -- an override is only judgeable next to the margin
+   * it cleared, and an accept is only judgeable next to the margin it
+   * did not. */
+  llmScore?: number;
+  deterministicScore?: number;
   estNeuronsIn: number;
   estNeuronsOut: number;
+}
+
+/** The gate half of an `ai_calls` row, applied to an already-inserted row
+ * by `updateAiCallGate` once the gate has run. */
+export interface AiCallGateUpdate {
+  gateVerdict: GateVerdict;
+  gateSource: string;
+  gateOverrideReason?: string;
+  llmScore?: number;
+  deterministicScore?: number;
 }
 
 export interface SessionRow {

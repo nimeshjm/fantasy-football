@@ -81,6 +81,38 @@ export interface LlmAuditSink {
     estNeuronsOut: number;
     rawResponse?: string;
   }): void | Promise<void>;
+
+  /**
+   * Records the sanity gate's verdict on the attempt `record` last reported
+   * for this `decisionKind`.
+   *
+   * Separate from `record` because of the ordering: `record` fires when the
+   * provider answers, and the gate can only run once that answer has parsed
+   * and validated. The gate is the component that decides whether the
+   * model's answer ships or is replaced by the deterministic optimum, and
+   * until this existed it could fire with no record that it had, or why --
+   * making "the gate is miscalibrated" and "the model is bad" the same
+   * observation. Both scores are carried on ACCEPT as well as override: an
+   * accept is only judgeable next to the margin it did not need.
+   *
+   * Optional so a caller that only wants call-level auditing (and every
+   * existing test fake) stays valid.
+   */
+  recordGate?(entry: {
+    decisionKind: DecisionKind;
+    /** Which attempt's answer the gate judged -- matches the `attempt` the
+     * corresponding `record` call carried. */
+    attempt: number;
+    accept: boolean;
+    /** The `DecisionSource` the gate settled on. */
+    source: DecisionSource;
+    overrideReason?: string;
+    /** Deterministic-model score of the LLM's own answer, and of the
+     * deterministic optimum. Both undefined for the transfer gate, which is
+     * a legality check with no score on either side. */
+    llmScore?: number;
+    deterministicScore?: number;
+  }): void | Promise<void>;
 }
 
 export interface NeuronBudget {

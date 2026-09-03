@@ -65,3 +65,25 @@ export async function getGwStatsForElement(
     .all<GwStatsRow>();
   return results;
 }
+
+/**
+ * Every stat line from `minEvent` onward, across all players, oldest event
+ * first. This is the trailing window `model-v2` needs: it fits per-90 rates
+ * from recent form, so it needs the last N gameweeks for the WHOLE candidate
+ * pool, which neither `getGwStatsForEvent` (one event, all players) nor
+ * `getGwStatsForElement` (all events, one player) can serve without N or
+ * ~656 separate queries.
+ *
+ * One query, ~656 rows per gameweek in the window. Ordered by event so
+ * callers can group into `ProjectionOptions.trailingStatsByElement` -- which
+ * is documented as oldest-first -- without re-sorting.
+ */
+export async function getGwStatsSince(db: D1Database, minEvent: number): Promise<GwStatsRow[]> {
+  const { results } = await db
+    .prepare(
+      `SELECT ${COLUMNS.join(', ')} FROM element_gw_stats WHERE event >= ? ORDER BY event, element_id`,
+    )
+    .bind(minEvent)
+    .all<GwStatsRow>();
+  return results;
+}

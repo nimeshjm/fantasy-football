@@ -424,7 +424,8 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     logAction: async (input) => {
       actions.push(input);
     },
-    logAiCall: async () => {},
+    logAiCall: async () => 1,
+    updateAiCallGate: async () => {},
     saveSquadState: async () => {},
   };
 

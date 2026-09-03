@@ -58,9 +58,11 @@ import {
   isEnabled,
   logAction,
   logAiCall,
+  updateAiCallGate,
   upsertProjections,
   upsertSquadState,
   type ActionLogInput,
+  type AiCallGateUpdate,
   type AiCallInput,
   type TeamRow,
 } from '../db';
@@ -188,7 +190,8 @@ type AuditEntry = Parameters<LlmAuditSink['record']>[0];
  * Every attempt now lands a row, whatever the outcome.
  */
 function makeAuditSink(deps: {
-  logAiCall: (input: AiCallInput) => Promise<void>;
+  logAiCall: (input: AiCallInput) => Promise<number>;
+  updateAiCallGate: (id: number, gate: AiCallGateUpdate) => Promise<void>;
   modelName: string;
 }): LlmAuditSink {
   return {
@@ -233,7 +236,10 @@ export interface DecisionCoreDeps {
   postMyTeam: (picks: Pick[]) => Promise<unknown>;
 
   logAction: (input: ActionLogInput) => Promise<void>;
-  logAiCall: (input: AiCallInput) => Promise<void>;
+  /** Returns the inserted `ai_calls` row id -- `updateAiCallGate` stamps the
+   * gate's verdict onto that same row once the gate has run. */
+  logAiCall: (input: AiCallInput) => Promise<number>;
+  updateAiCallGate: (id: number, gate: AiCallGateUpdate) => Promise<void>;
   saveSquadState: (picks: Pick[], bank: number, cumulativeTransfers: number) => Promise<void>;
 }
 
@@ -901,6 +907,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         },
         logAction: (input) => logAction(env.DB, input),
         logAiCall: (input) => logAiCall(env.DB, input),
+        updateAiCallGate: (id, gate) => updateAiCallGate(env.DB, id, gate),
         modelName: env.LLM_MODEL,
         saveSquadState: async (picks, bank, cumulativeTransfers) => {
           const entry = loaded.existingSquad?.entry ?? loaded.entry;

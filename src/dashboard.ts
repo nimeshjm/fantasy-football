@@ -21,6 +21,7 @@ import {
   getNeuronsSpentToday,
   getProjectionsForEvent,
   getRecentActions,
+  getProjectionStrategy,
   getRecentAiCalls,
   getTeams,
   isDryRun,
@@ -128,15 +129,35 @@ function actionRow(a: ActionLogRow): string {
   );
 }
 
+/** `llm 12.34 vs det 15.00` -- the two scores the gate compared, or `-`
+ * when the gate never ran (the attempt failed before it) or had no score to
+ * compare (the transfer gate is a legality check). A verdict is only
+ * judgeable next to the margin behind it. */
+function gateScores(c: AiCallRow): string {
+  if (c.llmScore === null && c.deterministicScore === null) return '-';
+  const llm = c.llmScore === null ? '?' : c.llmScore.toFixed(2);
+  const det = c.deterministicScore === null ? '?' : c.deterministicScore.toFixed(2);
+  return `llm ${llm} vs det ${det}`;
+}
+
 function aiCallRow(c: AiCallRow): string {
+  const verdict =
+    c.gateVerdict === 'override'
+      ? '<span class="tag gate">override</span>'
+      : escapeHtml(c.gateVerdict ?? '');
+  // `gate_verdict IS NULL` means the gate never ran -- the attempt failed
+  // before it. Rendered as an em dash, never as "accept", so a never-gated
+  // call stays distinguishable from an accepted one on sight.
+  const detail = c.gateOverrideReason ?? c.validationOutcome ?? '';
   return (
     `<tr><td>${escapeHtml(c.ts)}</td><td>${escapeHtml(c.decisionKind)}</td>` +
     `<td>${escapeHtml(c.model)}</td>` +
     `<td>${c.schemaValid === null ? '?' : c.schemaValid ? 'valid' : 'invalid'}</td>` +
     `<td>${c.repaired ? 'yes' : 'no'}</td>` +
-    `<td>${escapeHtml(c.gateVerdict ?? '')}</td>` +
+    `<td>${c.gateVerdict === null ? '&mdash;' : verdict}</td>` +
+    `<td>${escapeHtml(gateScores(c))}</td>` +
     `<td>${escapeHtml(c.estNeuronsIn + c.estNeuronsOut)}</td>` +
-    `<td><pre>${escapeHtml(c.validationOutcome ?? '')}</pre></td></tr>`
+    `<td><pre>${escapeHtml(detail)}</pre></td></tr>`
   );
 }
 
@@ -167,6 +188,10 @@ async function renderDashboardHtml(env: Env): Promise<string> {
   const dryRunOverride = await isDryRun(env.DB);
   const enabled = await isEnabled(env.DB);
   const dryRun = config.dryRun || dryRunOverride;
+  // Which projection model is actually driving the numbers below. Two
+  // strategies ship and either can be active, so a dashboard that doesn't
+  // say which one produced the xPts column is unreadable.
+  const strategy = await getProjectionStrategy(env.DB);
 
   const sessionStore = createSessionStore(env);
   const session = await sessionStore.getSession();
@@ -225,6 +250,7 @@ async function renderDashboardHtml(env: Env): Promise<string> {
   <span class="${sessionHealthy === true ? 'ok' : sessionHealthy === false ? 'bad' : ''}">
     Session: ${sessionHealthy === null ? 'unknown' : sessionHealthy ? 'healthy' : 'UNHEALTHY'}
   </span>
+  <span>Projections: ${escapeHtml(strategy)}</span>
   <span>Neurons today: ${escapeHtml(neuronsToday.toFixed(0))} / ${escapeHtml(config.neuronDailyCap)}</span>
   <span>Current GW: ${escapeHtml(current?.name ?? '-')}</span>
   <span>Next deadline: ${escapeHtml(next?.deadline_time ?? '-')}</span>
@@ -249,7 +275,7 @@ ${
 <tbody>${recentActions.map(actionRow).join('') || '<tr><td colspan="6">None yet.</td></tr>'}</tbody></table>
 
 <h2>AI call log</h2>
-<table><thead><tr><th>Time</th><th>Kind</th><th>Model</th><th>Schema</th><th>Repaired</th><th>Gate</th><th>Neurons</th><th>Outcome</th></tr></thead>
-<tbody>${recentAiCalls.map(aiCallRow).join('') || '<tr><td colspan="8">None yet.</td></tr>'}</tbody></table>
+<table><thead><tr><th>Time</th><th>Kind</th><th>Model</th><th>Schema</th><th>Repaired</th><th>Gate</th><th>Scores</th><th>Neurons</th><th>Outcome</th></tr></thead>
+<tbody>${recentAiCalls.map(aiCallRow).join('') || '<tr><td colspan="9">None yet.</td></tr>'}</tbody></table>
 `;
 }
