@@ -65,7 +65,8 @@ Two rules that are easy to get wrong and are guarded by tests:
 
 Writes to the live account are irreversible and cost points, so:
 
-- `DRY_RUN` ships **`true`**. Nothing is posted until it is explicitly flipped.
+- `DRY_RUN` is **`false`** — the agent posts to the live account. It shipped `true` and was
+  flipped in `2c9db47` once the rails below were in place.
 - One transfer per gameweek by default; no points hits in v1.
 - No chip is ever played automatically — `pdbus` / `2capt` / `uteam` semantics are inferred, not
   documented.
