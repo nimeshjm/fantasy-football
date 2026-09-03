@@ -9,8 +9,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "lint": "prettier --check src test",
-    "format": "prettier --write src test",
+    "lint": "prettier --check src test vitest.config.ts",
+    "format": "prettier --write src test vitest.config.ts",
     "migrate:local": "wrangler d1 migrations apply fantasy --local",
     "migrate:remote": "wrangler d1 migrations apply fantasy --remote"
   },

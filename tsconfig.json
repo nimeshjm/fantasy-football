@@ -14,5 +14,8 @@
     "resolveJsonModule": true,
     "noEmit": true
   },
-  "include": ["src/**/*.ts", "test/**/*.ts"]
+  // vitest.config.ts is included deliberately: the workers project's deploy
+  // gate is wired up there, and an unchecked config is the one place a
+  // mistake could quietly leave that guard checking nothing.
+  "include": ["src/**/*.ts", "test/**/*.ts", "vitest.config.ts"]
 }

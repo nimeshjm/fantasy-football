@@ -13,7 +13,7 @@ import { describe, expect, it } from 'vitest';
  * it is structurally incapable of catching this. The node tests never import
  * the worker entry under workerd's restrictions.
  *
- * The real guard now exists: test/workers/globalScope.workers.test.ts loads
+ * The real guard now exists: test/workers/deployContract.workers.test.ts loads
  * the deployable bundle inside workerd, where module scope is evaluated
  * outside any request context and a violation stops the run. That is the
  * authority; it needed the wrangler 4 / @cloudflare/vitest-pool-workers 0.22
