@@ -35,6 +35,18 @@
  * `load-squad-and-config` are kept as their own steps specifically so the
  * one CPU-heavy step never also has to redo D1 reads or the live
  * `me/`/`my-team/` round trip on a retry.
+ *
+ * A fourth step, `project`, sits between `read-neuron-spend` and
+ * `decide-and-commit`: computing projections (`model-v2` in particular --
+ * a multi-thousand-row trailing-stats read plus per-player Poisson-sum
+ * arithmetic over ~656 elements) used to happen inside `decide-and-commit`
+ * itself, which would stack that cost directly on top of the CPU-heaviest
+ * step above. `project` persists projections to D1 (`upsertProjections`)
+ * and returns only a small summary, never the projection rows themselves
+ * (`step.do` results are serialized into workflow storage); `decide-and-
+ * commit` reads them back with `getProjectionsForEvent` rather than having
+ * them threaded through the step boundary -- see the comments at both ends
+ * of that hand-off below for why.
  */
 
 import { getAuthContext, type AuthContext } from '../api/session';
@@ -52,10 +64,15 @@ import {
 import { ApiValidationError } from '../api/client';
 import {
   getAllElements,
+  getFixturesForEvent,
+  getGwStatsSince,
   getLatestSquadState,
+  getProjectionsForEvent,
+  getProjectionStrategy,
   getTeams,
   isDryRun as dbIsDryRun,
   isEnabled,
+  loadRatingsModel,
   logAction,
   logAiCall,
   updateAiCallGate,
@@ -76,7 +93,8 @@ import {
 import type { ShortlistEntry } from '../ai/prompts';
 import { selectProvider, type LlmProvider } from '../ai/provider';
 import { candidateTransfers } from '../optimizer/transfers';
-import { projectAll } from '../model/projection';
+import { projectAll, STRATEGY_MODEL_V2, type UpcomingFixtureInfo } from '../model/projection';
+import type { RatingsModel } from '../model/ratings';
 import { buildShortlist, ShortlistInvariantError } from '../shortlist';
 import { makeLineupBaseline, makeSquadBaseline, makeTransferBaseline } from '../baseline';
 import { createSessionStore } from '../sessionStore';
@@ -85,6 +103,7 @@ import {
   RULES,
   type Decision,
   type Element,
+  type GwStats,
   type Pick,
   type Projection,
   type TransferMove,
@@ -828,11 +847,104 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       getNeuronsSpentToday(env.DB, new Date().toISOString().slice(0, 10)),
     );
 
+    // Its own step, ahead of `decide-and-commit`, for the same CPU-budget
+    // reason the module doc gives for keeping `load-squad-and-config`
+    // separate: `decide-and-commit` is already the heaviest step in this
+    // workflow (buildShortlist's ~7-8ms worst case against a 10ms/step
+    // budget), and model-v2 is not free CPU on top of that -- it reads a
+    // multi-thousand-row trailing-stats window (I/O plus O(rows) grouping
+    // below) and then runs ~656 elements through `projectModelV2`, each
+    // doing several `poissonFloorDivExpectation` sums (kMax=20 terms of
+    // float arithmetic apiece). Bundling that into `decide-and-commit`
+    // would be exactly the kind of "one more thing" the module doc warns
+    // against tipping the CPU-heavy step over budget. `ep-next` still runs
+    // through this step (cheap: `getAllElements` plus one `config` read via
+    // `getProjectionStrategy`, no fixtures/ratings/trailing-stats reads) so
+    // the read-back below always has a fresh row per player, whichever
+    // strategy is active.
+    await step.do('project', async () => {
+      const elements = await getAllElements(env.DB);
+      const strategy = await getProjectionStrategy(env.DB);
+
+      let ratings: RatingsModel | undefined;
+      let fixturesByTeam: Map<number, UpcomingFixtureInfo> | undefined;
+      let trailingStatsByElement: Map<number, GwStats[]> | undefined;
+
+      if (strategy === STRATEGY_MODEL_V2) {
+        ratings = await loadRatingsModel(env.DB);
+
+        // One fixture per team for THIS event only -- a team plays both
+        // home and away across a season, but within a single gameweek's
+        // fixture list it appears at most once (see
+        // `UpcomingFixtureInfo`'s own doc: double gameweeks are not
+        // modelled). A team absent here (blank gameweek) is intentionally
+        // left out of the map; `projectModelV2` already treats that as 0
+        // xmins/xpts.
+        const fixtures = await getFixturesForEvent(env.DB, eventId);
+        fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
+        for (const f of fixtures) {
+          fixturesByTeam.set(f.team_h, { opponent: f.team_a, isHome: true });
+          fixturesByTeam.set(f.team_a, { opponent: f.team_h, isHome: false });
+        }
+
+        // Trailing window: mirror projection.ts's own default lookback (6
+        // gameweeks -- see ProjectionOptions.trailingWindow's doc) so the
+        // D1 read covers exactly what the model can use, no more. Clamped
+        // to event 1 so an early-season `eventId` (e.g. GW3) doesn't
+        // request a negative/zero event. `getGwStatsSince` is `event >=
+        // minEvent` with no upper bound, so it would also happily return
+        // rows for `eventId` itself if ingest had ever written partial
+        // in-progress stats for the gameweek being projected -- that
+        // can't happen in this workflow (ingest only runs, and only
+        // writes, for gameweeks that have already been played), but the
+        // filter below makes that assumption explicit and enforced rather
+        // than implicit and silently relied on.
+        const TRAILING_WINDOW_GAMEWEEKS = 6;
+        const minEvent = Math.max(1, eventId - TRAILING_WINDOW_GAMEWEEKS);
+        const trailingRows = (await getGwStatsSince(env.DB, minEvent)).filter(
+          (r) => r.event < eventId,
+        );
+        trailingStatsByElement = new Map<number, GwStats[]>();
+        for (const row of trailingRows) {
+          const list = trailingStatsByElement.get(row.element_id);
+          if (list) {
+            list.push(row);
+          } else {
+            trailingStatsByElement.set(row.element_id, [row]);
+          }
+        }
+      }
+
+      const projections = projectAll(elements, eventId, {
+        strategy,
+        ratings,
+        fixturesByTeam,
+        trailingStatsByElement,
+      });
+      await upsertProjections(env.DB, projections, nowIso());
+
+      // Never return the projections themselves -- step.do's return value
+      // is serialized into workflow instance storage, and 656 rows of
+      // { element_id, event, xmins, xpts } per attempt is exactly the kind
+      // of payload that belongs in D1 (already the source of truth here),
+      // not duplicated into workflow state. `decide-and-commit` reads them
+      // straight back out below.
+      return { strategy, projected: projections.length, teamsRated: ratings?.ratings.size ?? 0 };
+    });
+
     const result = await step.do('decide-and-commit', async () => {
       const elements = await getAllElements(env.DB);
       const teams = await getTeams(env.DB);
-      const projections = projectAll(elements, eventId);
-      await upsertProjections(env.DB, projections, nowIso());
+      // Read back rather than threading `project`'s in-memory projections
+      // through the step boundary: `step.do` results are serialized and
+      // persisted (see the "never return the projections themselves"
+      // comment in the `project` step above), and D1 is the single source
+      // of truth here regardless -- a retry of THIS step alone must see
+      // the same projections `project` already committed, not risk
+      // depending on that step's now-gone in-memory value.
+      // `ProjectionRow extends Projection`, so this satisfies
+      // `DecisionCoreDeps.projections` without any adaptation.
+      const projections = await getProjectionsForEvent(env.DB, eventId);
 
       const provider = selectProvider(env);
       const neuronBudget = createNeuronBudget(

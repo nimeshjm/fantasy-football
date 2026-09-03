@@ -24,7 +24,7 @@ import {
   type EventLive,
   type LiveExplainFixture,
 } from '../api/endpoints';
-import { getAllFixtures, upsertFixtures, upsertGwStats, upsertTeamRatings } from '../db';
+import { getAllFixtures, saveRatingsModel, upsertFixtures, upsertGwStats } from '../db';
 import { fitTeamRatings } from '../model/ratings';
 import type { GwStats, RawStats } from '../types';
 
@@ -160,13 +160,16 @@ export class IngestWorkflow extends WorkflowEntrypoint<Env, IngestWorkflowParams
     const rated = await step.do('refit-team-ratings', async () => {
       const fixtures = await getAllFixtures(env.DB);
       const model = fitTeamRatings(fixtures);
-      const rows = [...model.ratings.entries()].map(([team_id, r]) => ({
-        team_id,
-        attack: r.attack,
-        defence: r.defence,
-      }));
-      await upsertTeamRatings(env.DB, rows, new Date().toISOString());
-      return rows.length;
+      // Persist the WHOLE model, not just the per-team attack/defence rows.
+      // `expectedGoals` (src/model/ratings.ts) multiplies by `leagueAvgGoals`
+      // and `homeAdvantage`, two league-wide scalars that live outside the
+      // per-team `team_ratings` table -- see `saveRatingsModel`'s own doc in
+      // src/db/teamRatings.ts. Persisting only the per-team rows (the old
+      // behaviour here) would let `loadRatingsModel` reconstruct a model
+      // that is wrong by a constant multiplicative factor on every expected
+      // goals figure, with no error raised anywhere.
+      await saveRatingsModel(env.DB, model, new Date().toISOString());
+      return model.ratings.size;
     });
 
     return { events, teamsRated: rated };
