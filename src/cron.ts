@@ -148,16 +148,24 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
     try {
       const health = await ports.checkSession();
       sessionHealthy = health.healthy;
-      if (!health.healthy) {
-        await ports.logAction({
-          ts: new Date().toISOString(),
-          kind: 'session-health',
-          intent: { check: 'session' },
-          dryRun: false,
-          source: 'cron',
-          ok: false,
-        });
-      }
+      // Logged on EVERY tick, healthy or not, deliberately.
+      //
+      // This used to log only failures, which made a healthy session
+      // indistinguishable from the cron having stopped firing: both look like
+      // an empty table. Diagnosing "is it working?" meant cross-referencing
+      // elements.updated_at to prove a tick had run at all. Logging both
+      // outcomes makes this row a heartbeat -- absence now means the tick
+      // itself did not happen, which is a different and much more useful
+      // signal. Costs 24 rows/day against a 100k/day budget.
+      await ports.logAction({
+        ts: new Date().toISOString(),
+        kind: 'session-health',
+        intent: { check: 'session' },
+        response: { healthy: health.healthy, entry: health.entry ?? null },
+        dryRun: false,
+        source: 'cron',
+        ok: health.healthy,
+      });
     } catch (err) {
       // A failed health check is itself a dead-session signal -- surface it,
       // never swallow it silently.

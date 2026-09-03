@@ -204,4 +204,22 @@ describe('runScheduledTick', () => {
     expect(result.sessionHealthy).toBe(false);
     expect(ports.logged.some((l) => (l as { kind: string }).kind === 'session-health')).toBe(true);
   });
+
+  it('logs a session-health heartbeat on every tick, not only on failure', async () => {
+    // Regression guard. Failure-only logging made a healthy session
+    // indistinguishable from the cron having stopped firing -- both produce an
+    // empty actions_log -- so confirming the agent was alive required
+    // cross-referencing elements.updated_at. The row is a heartbeat: its
+    // absence must mean the tick did not run.
+    const ports = makePorts(); // default checkSession resolves healthy
+    const result = await runScheduledTick(ports);
+
+    expect(result.sessionHealthy).toBe(true);
+    const beats = ports.logged.filter((l) => (l as { kind: string }).kind === 'session-health');
+    expect(beats).toHaveLength(1);
+    expect((beats[0] as { ok: boolean }).ok).toBe(true);
+    // The entry id is what makes a healthy beat actionable: it proves the
+    // cookie resolved to a real account, not just that a request succeeded.
+    expect((beats[0] as { response: { entry: number | null } }).response.entry).toBe(1);
+  });
 });
