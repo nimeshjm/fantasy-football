@@ -71,7 +71,19 @@ function extractToken(request: Request): string | null {
   return null;
 }
 
-const NOT_FOUND = new Response('Not found', { status: 404 });
+/**
+ * A fresh 404 per call, deliberately a factory rather than a shared constant.
+ *
+ * Two reasons, either of which is sufficient. First, constructing a Response
+ * with a body at module scope is a disallowed global-scope operation in
+ * workerd and Cloudflare rejects the upload outright (error 10021) — a
+ * module-level `new Response(...)` will not deploy. Second, a Response body
+ * can only be consumed once, so handing the same instance to two different
+ * requests would serve a used body to the second one.
+ */
+function notFound(): Response {
+  return new Response('Not found', { status: 404 });
+}
 
 /**
  * Handles `GET /`. Returns 404 for anything that isn't a correctly-tokened
@@ -79,9 +91,9 @@ const NOT_FOUND = new Response('Not found', { status: 404 });
  * in its response.
  */
 export async function handleDashboard(request: Request, env: Env): Promise<Response> {
-  if (!env.DASHBOARD_TOKEN) return NOT_FOUND;
+  if (!env.DASHBOARD_TOKEN) return notFound();
   const token = extractToken(request);
-  if (!token || !timingSafeEqual(token, env.DASHBOARD_TOKEN)) return NOT_FOUND;
+  if (!token || !timingSafeEqual(token, env.DASHBOARD_TOKEN)) return notFound();
 
   const html = await renderDashboardHtml(env);
   return new Response(html, {
