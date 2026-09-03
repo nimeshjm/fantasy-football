@@ -264,6 +264,25 @@ async function callLlm(
   return { ok: true, text: result.text };
 }
 
+/**
+ * Records one gate verdict through `audit.recordGate`, if the sink declares
+ * it. Shared by all three gate sites (squad, lineup, transfer) rather than
+ * duplicated per site, and wrapped the same way `callLlm`'s `note` helper
+ * wraps `audit.record` above: a throwing audit sink must never take down
+ * the decision path it is merely observing.
+ */
+async function noteGate(
+  audit: LlmAuditSink | undefined,
+  entry: Parameters<NonNullable<LlmAuditSink['recordGate']>>[0],
+): Promise<void> {
+  if (!audit?.recordGate) return;
+  try {
+    await audit.recordGate(entry);
+  } catch {
+    /* observability must never take down the decision path */
+  }
+}
+
 function withViolationNote(base: BuiltPrompt, violationNote: string): BuiltPrompt {
   if (!violationNote) return base;
   return {
@@ -320,6 +339,17 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
   let violationNote = '';
   let lastPicks: Pick[] | null = null;
   let lastReason = '';
+  // The attempt whose (invalid) answer `lastPicks`/`lastReason` were taken
+  // from -- needed so the repair path below can tag its `recordGate` call
+  // with the same `attempt` number the corresponding `record` call carried,
+  // per `recordGate`'s documented contract. Not necessarily the final loop
+  // iteration: a later attempt can fail before ever producing picks
+  // (provider error, unparseable JSON), leaving `lastPicks` (and this) at
+  // the last attempt that actually validated-with-errors. This is exactly
+  // why `makeAuditSink` keys its remembered row ids by (kind, attempt)
+  // rather than by kind alone -- keyed by kind, a repaired squad's verdict
+  // would be stamped onto that later, unrelated failure's row.
+  let lastAttempt = -1;
 
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
     const call = await callLlm(
@@ -352,7 +382,7 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
 
     const errors = validateSquad(picks, elements);
     if (errors.length === 0) {
-      return gateAndReturnSquad(
+      return await gateAndReturnSquad(
         picks,
         parsed.value.reason,
         'llm',
@@ -360,18 +390,21 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
         shortlist,
         baseline,
         input.squadMargin,
+        attempt,
+        audit,
       );
     }
 
     lastPicks = picks;
     lastReason = parsed.value.reason;
+    lastAttempt = attempt;
     violationNote = formatErrors(errors);
   }
 
   if (lastPicks) {
     const repair = repairSquad(lastPicks, rankedIds, elements);
     if (repair.repaired) {
-      return gateAndReturnSquad(
+      return await gateAndReturnSquad(
         repair.picks,
         lastReason,
         'llm-repaired',
@@ -379,6 +412,8 @@ export async function decideSquad(input: DecideSquadInput): Promise<Decision> {
         shortlist,
         baseline,
         input.squadMargin,
+        lastAttempt,
+        audit,
       );
     }
   }
@@ -448,7 +483,7 @@ function assignSquadFormation(
   }));
 }
 
-function gateAndReturnSquad(
+async function gateAndReturnSquad(
   picks: Pick[],
   reason: string,
   source: LlmSource,
@@ -456,7 +491,9 @@ function gateAndReturnSquad(
   shortlist: ShortlistEntry[],
   baseline: DeterministicBaseline,
   squadMargin: number | undefined,
-): Decision {
+  attempt: number,
+  audit: LlmAuditSink | undefined,
+): Promise<Decision> {
   const formedPicks = assignSquadFormation(
     picks.map((p) => p.element),
     elements,
@@ -466,6 +503,15 @@ function gateAndReturnSquad(
   const optimalPicks = baseline.optimalSquad();
   const optimalScore = baseline.scoreSquad(optimalPicks);
   const gate = gateDecision('squad', { score: llmScore }, { score: optimalScore }, { squadMargin });
+  await noteGate(audit, {
+    decisionKind: 'squad',
+    attempt,
+    accept: gate.accept,
+    source: gate.source,
+    overrideReason: gate.overrideReason,
+    llmScore,
+    deterministicScore: optimalScore,
+  });
   if (!gate.accept) {
     return {
       kind: 'squad',
@@ -565,13 +611,15 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
 
     const errors = validateLineup(picks, ownedPlayers);
     if (errors.length === 0) {
-      return gateAndReturnLineup(
+      return await gateAndReturnLineup(
         picks,
         parsed.value.reason,
         'llm',
         elements,
         baseline,
         input.lineupAbsFloor,
+        attempt,
+        audit,
       );
     }
 
@@ -584,14 +632,16 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
   return fallback();
 }
 
-function gateAndReturnLineup(
+async function gateAndReturnLineup(
   picks: Pick[],
   reason: string,
   source: LlmSource,
   elements: Element[],
   baseline: DeterministicBaseline,
   lineupAbsFloor: number | undefined,
-): Decision {
+  attempt: number,
+  audit: LlmAuditSink | undefined,
+): Promise<Decision> {
   const llmScore = baseline.scoreLineup(picks);
   const optimalPicks = baseline.optimalLineup();
   const optimalScore = baseline.scoreLineup(optimalPicks);
@@ -602,6 +652,15 @@ function gateAndReturnLineup(
     { score: optimalScore },
     { lineupAbsFloor },
   );
+  await noteGate(audit, {
+    decisionKind: 'lineup',
+    attempt,
+    accept: gate.accept,
+    source: gate.source,
+    overrideReason: gate.overrideReason,
+    llmScore,
+    deterministicScore: optimalScore,
+  });
   if (!gate.accept) {
     return {
       kind: 'lineup',
@@ -709,6 +768,26 @@ export async function decideTransfer(input: DecideTransferInput): Promise<Decisi
 
     const errors = validateTransfer(move, validateCandidates);
     const gate = gateDecision('transfer', { transferValid: errors.length === 0 }, {}, {});
+    // Unlike the squad/lineup gates (each recorded exactly once, at the
+    // attempt whose answer they judged and returned), the transfer gate is
+    // a per-attempt LEGALITY retry signal, not a terminal override: a
+    // rejection here `continue`s the loop rather than returning a
+    // `deterministic-gate` decision, and an exhausted loop falls through to
+    // `source: 'deterministic-fallback'` below -- 'deterministic-gate' never
+    // appears as a transfer decision's own source. So every attempt's
+    // verdict is recorded here, inside the loop, rather than once after it
+    // -- otherwise only the LAST attempt's rejection would ever reach the
+    // audit trail, silently dropping every earlier one. `llmScore`/
+    // `deterministicScore` are omitted: the transfer gate is a legality
+    // check (is this move an offered candidate with positive gain?), not a
+    // score comparison, so neither side has a score to record.
+    await noteGate(audit, {
+      decisionKind: 'transfer',
+      attempt,
+      accept: gate.accept,
+      source: gate.source,
+      overrideReason: gate.overrideReason,
+    });
     if (gate.accept) {
       return { kind: 'transfer', source: 'llm', transfers: [move], reasoning: parsed.value.reason };
     }
