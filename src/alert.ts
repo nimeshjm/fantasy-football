@@ -54,11 +54,18 @@ export async function sendWebhookAlert(
     return { delivered: false, detail: `ALERT_WEBHOOK_URL must be https, got ${parsed.protocol}` };
   }
 
+  // The same summary under BOTH keys, so one webhook URL works for either of
+  // the two likely targets without a per-service adapter: Slack renders
+  // `text` and ignores `content`, Discord requires `content` and ignores
+  // `text`. Sending only `text` gets a Discord webhook rejected outright with
+  // `400 Cannot send an empty message` -- it needs one of content/embeds/file.
+  const summary = summarize(payload);
+
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: summarize(payload), ...payload }),
+      body: JSON.stringify({ text: summary, content: summary, ...payload }),
       signal: AbortSignal.timeout(ALERT_TIMEOUT_MS),
     });
     if (!response.ok) {
@@ -70,10 +77,17 @@ export async function sendWebhookAlert(
   }
 }
 
-/** A one-line human summary. Named `text` in the body because that is the
- * field Slack, Discord (via `content`-compatible relays) and ntfy all render
- * without any per-service formatting; the structured fields ride alongside
- * for anything that wants them. */
+/**
+ * A one-line human summary, sent as both `text` and `content` (see the call
+ * site). It has to stand alone: the alert fires at most once per incident, so
+ * whoever reads it may only ever see this string, not the structured fields
+ * riding alongside it. Hence naming the secret to re-paste and saying what
+ * degrades until someone does.
+ *
+ * ntfy is the one target that wants neither key -- it renders the whole
+ * request body -- so there the summary arrives inside the JSON rather than as
+ * the notification title. Legible, not pretty.
+ */
 function summarize(payload: SessionAlertPayload): string {
   const age = payload.firstOkAt ? ` (cookie first seen ${payload.firstOkAt})` : '';
   const why =

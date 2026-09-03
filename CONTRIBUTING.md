@@ -63,6 +63,17 @@ unset is supported and means alerting is simply off — useful locally, and
 why CI needs no stub. It must be `https:`; a plaintext URL is refused rather
 than downgraded silently.
 
+A Discord webhook (Server Settings → Integrations → Webhooks → New Webhook →
+Copy URL) or a Slack incoming webhook both work as-is: the body carries the
+one-line summary under both `content` and `text`, which is the field each of
+them renders. The URL *is* the credential, so it belongs in
+`wrangler secret put`, never in `wrangler.jsonc` — this repo is public.
+
+Prefer a channel that keeps a backlog over a transient desktop banner. The
+alert fires **at most once per incident** (see `config.session_alert_open`),
+so a notification missed while the machine was asleep is not repeated until
+the session recovers and dies again.
+
 Only `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` live in GitHub
 (as repository secrets, used by `deploy.yml` to authenticate `wrangler`
 itself) — never the secrets above.
