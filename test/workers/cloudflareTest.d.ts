@@ -8,10 +8,16 @@
  * declares only the surface test/workers/** actually imports, and lives under
  * `test/` so the existing tsconfig `include` already covers it.
  *
- * `WORKER_UNDER_TEST` is not a real binding of this Worker: it is the service
- * binding vitest.config.ts adds to the runner, pointing at the deployable
- * bundle running as a separate Worker.
+ * None of the three names below are real bindings of this Worker; they are
+ * what vitest.config.ts adds to the runner: `WORKER_UNDER_TEST` points at the
+ * deployable bundle running as a separate Worker, `HANDLER_SHAPE_PROBE` at the
+ * generated Worker that reports that bundle's export shape, and
+ * `WORKFLOW_CLASS_NAMES` carries `wrangler.jsonc`'s Workflow class names.
  */
 declare module 'cloudflare:test' {
-  export const env: import('../../src/env').Env & { WORKER_UNDER_TEST: Fetcher };
+  export const env: import('../../src/env').Env & {
+    WORKER_UNDER_TEST: Fetcher;
+    HANDLER_SHAPE_PROBE: Fetcher;
+    WORKFLOW_CLASS_NAMES: string[];
+  };
 }
