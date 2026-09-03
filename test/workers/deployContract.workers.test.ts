@@ -65,6 +65,33 @@ describe('deployable bundle under workerd', () => {
     expect(await response.text()).toBe('Not found');
   });
 
+  it('gates the admin routes before touching a binding', async () => {
+    // A free assertion, because `WORKER_UNDER_TEST` is declared with no
+    // bindings at all (see vitest.config.ts): the token gate reads only
+    // `env.DASHBOARD_TOKEN` and the request, so an unconfigured deployment
+    // answers 404. A handler that reached for `env.DB` first would throw
+    // inside workerd and return 500 instead -- which is exactly the mistake
+    // this catches.
+    const response = await env.WORKER_UNDER_TEST.fetch(
+      'http://worker-under-test/admin/login-probe',
+      { method: 'POST' },
+    );
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Not found');
+  });
+
+  it('does not expose the login probe over GET', async () => {
+    // The probe submits real credentials to the live site, so a token-gated
+    // GET would let any prefetcher that saw the ?token= URL trigger a login
+    // attempt. GET must fall through to the plain 404.
+    const response = await env.WORKER_UNDER_TEST.fetch(
+      'http://worker-under-test/admin/login-probe',
+    );
+
+    expect(response.status).toBe(404);
+  });
+
   it('has the ai and workflows bindings this Worker declares', () => {
     // The reason this project could not exist before the wrangler 4 upgrade:
     // @cloudflare/vitest-pool-workers 0.5 could not emulate these. Nothing

@@ -74,6 +74,29 @@ Writes to the live account are irreversible and cost points, so:
 - A kill switch in the `config` table halts all writes without a redeploy.
 - Every decision, prompt, validation outcome and write is logged for audit.
 
+## Session health
+
+The `sessionid` is a pasted secret (`SESSION_PROVIDER=manual`) because the
+site rejects `POST player/login/` for this account. It expires and cannot
+re-authenticate itself, and the failure is quiet: the agent still commits a
+legal team, it just stops reading the injury text. So the tick logs a
+`session-health` heartbeat every hour, and **three consecutive failures POST
+to `ALERT_WEBHOOK_URL`** — once per incident, latched only on actual
+delivery, cleared automatically on recovery.
+
+Two limits worth knowing:
+
+- **The kill switch silences alerting too.** `config.enabled = 0` returns
+  before any write, heartbeat included, so a disabled agent says nothing
+  about a dead cookie. That is the deliberate cost of "no writes at all"
+  being absolute.
+- **This cannot detect a dead cron.** The streak is counted in beats, not
+  elapsed time, so a Cloudflare cron outage raises no false alarm — and
+  equally raises no alarm. Catching that needs an external dead-man's switch.
+
+`CONTRIBUTING.md` covers rotating the cookie, reading the observed lifetime
+out of the heartbeat archive, and the `/admin/login-probe` route.
+
 ## Setup
 
 Requires a Cloudflare account and a Fantasy Liga Portugal account. See `CONTRIBUTING.md` for local

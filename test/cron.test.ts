@@ -286,3 +286,247 @@ describe('runScheduledTick', () => {
     expect((beats[0] as { response: { entry: number | null } }).response.entry).toBe(1);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Session alerting
+// ---------------------------------------------------------------------------
+
+describe('planSessionAlert', () => {
+  const threshold = SESSION_ALERT_THRESHOLD;
+
+  it('stays quiet below the threshold', () => {
+    expect(planSessionAlert({ now: NOW, beats: failedBeats(2), threshold, alertOpen: false })).toBe(
+      'none',
+    );
+  });
+
+  it('sends on exactly the threshold', () => {
+    expect(
+      planSessionAlert({ now: NOW, beats: failedBeats(threshold), threshold, alertOpen: false }),
+    ).toBe('send');
+  });
+
+  it('does not re-send while an alert is already open', () => {
+    // The storm guard. Ticks are hourly and a dead cookie stays dead until
+    // someone re-pastes it, so without this the webhook fires 24 times a day
+    // and the feature is worse than the dashboard it replaces.
+    expect(
+      planSessionAlert({ now: NOW, beats: failedBeats(threshold), threshold, alertOpen: true }),
+    ).toBe('none');
+  });
+
+  it('stands the alert down once a beat is healthy again', () => {
+    const beats = [beat({ ok: true }), ...failedBeats(threshold)];
+
+    expect(planSessionAlert({ now: NOW, beats, threshold, alertOpen: true })).toBe('clear');
+  });
+
+  it('does nothing on recovery when no alert was open', () => {
+    expect(
+      planSessionAlert({ now: NOW, beats: [beat({ ok: true })], threshold, alertOpen: false }),
+    ).toBe('none');
+  });
+
+  it('does not alert on a single failure just because the log is short', () => {
+    // The boundary bug: on a fresh deploy the tick writes one beat, and
+    // "every beat in the list is a failure" would be trivially true.
+    expect(planSessionAlert({ now: NOW, beats: failedBeats(1), threshold, alertOpen: false })).toBe(
+      'none',
+    );
+  });
+
+  it('does not count stale failures toward the streak', () => {
+    // The kill-switch hole. `isEnabled === false` returns before any write,
+    // so no beat is logged at all -- a week disabled leaves old failures
+    // sitting at the top of the table. One fresh failure plus two
+    // month-old ones is not a three-hour outage and must not page.
+    const stale = new Date(NOW.getTime() - 30 * 24 * 3_600_000).toISOString();
+    const beats = [beat(), beat({ ts: stale }), beat({ ts: stale })];
+
+    expect(planSessionAlert({ now: NOW, beats, threshold, alertOpen: false })).toBe('none');
+  });
+
+  it('counts failures right up to the edge of the freshness window', () => {
+    // Guards the window from being so tight that a couple of genuinely
+    // missed cron ticks mask a real outage.
+    const beats = failedBeats(threshold).map((b, i) =>
+      i === threshold - 1
+        ? beat({ ts: new Date(NOW.getTime() - (SESSION_BEAT_FRESH_WINDOW_MS - 1)).toISOString() })
+        : b,
+    );
+
+    expect(planSessionAlert({ now: NOW, beats, threshold, alertOpen: false })).toBe('send');
+  });
+
+  it('does nothing when there are no beats at all', () => {
+    expect(planSessionAlert({ now: NOW, beats: [], threshold, alertOpen: false })).toBe('none');
+  });
+});
+
+describe('runScheduledTick session observability', () => {
+  it('writes the cookie fingerprint onto every heartbeat', async () => {
+    // `session.first_ok_at` is overwritten on a re-paste, so without the
+    // fingerprint on the beat the previous cookie's observed lifetime is
+    // lost forever. actions_log is never pruned; this makes
+    // lifetime-per-cookie a permanent query.
+    const ports = makePorts();
+    await runScheduledTick(ports);
+
+    const heartbeat = ports.logged.find((l) => (l as { kind: string }).kind === 'session-health');
+    expect((heartbeat as { response: { fingerprint: string } }).response.fingerprint).toBe(
+      'abc123abc123',
+    );
+  });
+
+  it('records a healthy heartbeat against the session row, using the injected clock', async () => {
+    const ports = makePorts();
+    await runScheduledTick(ports);
+
+    expect(ports.sessionOks).toEqual([{ at: NOW.toISOString(), fingerprint: 'abc123abc123' }]);
+  });
+
+  it('does not record a session ok when the session is unhealthy', async () => {
+    const ports = makePorts({ checkSession: vi.fn().mockResolvedValue({ healthy: false }) });
+    await runScheduledTick(ports);
+
+    expect(ports.recordSessionOk).not.toHaveBeenCalled();
+  });
+
+  it('writes exactly one heartbeat even when refreshBootstrap throws', async () => {
+    // Regression guard. The heartbeat used to run AFTER refreshBootstrap, so
+    // a thrown bootstrap fetch went to the outer catch and the tick wrote no
+    // session-health row at all -- meaning the loudest failure mode (the
+    // agent fully dead) produced zero failing beats and zero alerts.
+    const ports = makePorts({
+      refreshBootstrap: vi.fn().mockRejectedValue(new Error('bootstrap-static 503')),
+    });
+    await runScheduledTick(ports);
+
+    const beats = ports.logged.filter((l) => (l as { kind: string }).kind === 'session-health');
+    expect(beats).toHaveLength(1);
+  });
+
+  it('does not write a second failing heartbeat when recordSessionOk throws', async () => {
+    // recordSessionOk gets its own try/catch precisely so a D1 hiccup on a
+    // HEALTHY tick cannot fall into the failure path and corrupt the streak
+    // the alert reads.
+    const ports = makePorts({
+      recordSessionOk: vi.fn().mockRejectedValue(new Error('D1 unavailable')),
+    });
+    const result = await runScheduledTick(ports);
+
+    const beats = ports.logged.filter((l) => (l as { kind: string }).kind === 'session-health');
+    expect(beats).toHaveLength(1);
+    expect((beats[0] as { ok: boolean }).ok).toBe(true);
+    expect(result.sessionHealthy).toBe(true);
+  });
+
+  it('still dispatches DECIDE when the whole alert block fails', async () => {
+    // A missed deadline is worse than a stale news feed: observability must
+    // never be able to cost a gameweek.
+    const nextEvent = event({ id: 7, deadline_time: '2026-09-10T18:00:00Z' });
+    const ports = makePorts({
+      refreshBootstrap: vi.fn().mockResolvedValue([nextEvent]),
+      getSessionAlertState: vi.fn().mockRejectedValue(new Error('D1 unavailable')),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(result.alertAction).toBeNull();
+    expect(ports.decideCreated).toEqual([
+      { id: 'decide-e7', params: { mode: 'full', eventId: 7 } },
+    ]);
+  });
+
+  it('sends one alert and latches it once the streak reaches the threshold', async () => {
+    const ports = makePorts({
+      checkSession: vi.fn().mockResolvedValue({ healthy: false }),
+      getSessionAlertState: vi.fn().mockResolvedValue({
+        beats: failedBeats(SESSION_ALERT_THRESHOLD),
+        alertOpen: false,
+        okState: {
+          lastOkAt: '2026-09-10T13:00:00.000Z',
+          firstOkAt: '2026-09-01T13:00:00.000Z',
+          cookieFingerprint: 'abc123abc123',
+        },
+      }),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(result.alertAction).toBe('send');
+    expect(ports.alertsSent).toHaveLength(1);
+    expect(ports.alertsSent[0]).toMatchObject({
+      streak: SESSION_ALERT_THRESHOLD,
+      lastOkAt: '2026-09-10T13:00:00.000Z',
+      firstOkAt: '2026-09-01T13:00:00.000Z',
+      cookieFingerprint: 'abc123abc123',
+    });
+    expect(ports.alertOpenWrites).toEqual([true]);
+    const audit = ports.logged.find((l) => (l as { kind: string }).kind === 'session-alert');
+    expect((audit as { ok: boolean }).ok).toBe(true);
+  });
+
+  it('reports why the session failed, so an alert distinguishes a dead cookie from a dead site', async () => {
+    const ports = makePorts({
+      checkSession: vi.fn().mockRejectedValue(new Error('403 Forbidden')),
+      getSessionAlertState: vi.fn().mockResolvedValue({
+        beats: failedBeats(SESSION_ALERT_THRESHOLD),
+        alertOpen: false,
+        okState: null,
+      }),
+    });
+    await runScheduledTick(ports);
+
+    expect(ports.alertsSent[0]).toMatchObject({ reason: 'error', detail: '403 Forbidden' });
+  });
+
+  it('does NOT latch the alert when delivery failed, so the next tick retries', async () => {
+    // Latching regardless would mean an unset or broken webhook silences the
+    // very alerting this exists to add.
+    const ports = makePorts({
+      checkSession: vi.fn().mockResolvedValue({ healthy: false }),
+      getSessionAlertState: vi.fn().mockResolvedValue({
+        beats: failedBeats(SESSION_ALERT_THRESHOLD),
+        alertOpen: false,
+        okState: null,
+      }),
+      sendAlert: vi.fn().mockResolvedValue({ delivered: false, detail: 'webhook returned 500' }),
+    });
+    await runScheduledTick(ports);
+
+    expect(ports.alertOpenWrites).toEqual([]);
+    const audit = ports.logged.find((l) => (l as { kind: string }).kind === 'session-alert');
+    expect((audit as { ok: boolean }).ok).toBe(false);
+  });
+
+  it('stands the alert down on recovery so the next incident can fire', async () => {
+    const ports = makePorts({
+      getSessionAlertState: vi
+        .fn()
+        .mockResolvedValue({ beats: [beat({ ok: true })], alertOpen: true, okState: null }),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(result.alertAction).toBe('clear');
+    expect(ports.alertOpenWrites).toEqual([false]);
+    expect(ports.sendAlert).not.toHaveBeenCalled();
+  });
+
+  it('does not break the tick when sendAlert itself throws', async () => {
+    // sendWebhookAlert is contracted never to throw, but the tick must not
+    // depend on that contract being kept.
+    const ports = makePorts({
+      checkSession: vi.fn().mockResolvedValue({ healthy: false }),
+      getSessionAlertState: vi.fn().mockResolvedValue({
+        beats: failedBeats(SESSION_ALERT_THRESHOLD),
+        alertOpen: false,
+        okState: null,
+      }),
+      sendAlert: vi.fn().mockRejectedValue(new Error('unexpected')),
+    });
+
+    const result = await runScheduledTick(ports);
+
+    expect(result.alertAction).toBeNull();
+    expect(result.sessionHealthy).toBe(false);
+  });
+});
