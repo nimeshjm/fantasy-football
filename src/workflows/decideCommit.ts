@@ -64,6 +64,7 @@ import {
   type ActionLogInput,
   type AiCallGateUpdate,
   type AiCallInput,
+  type GateVerdict,
   type TeamRow,
 } from '../db';
 import {
@@ -84,6 +85,7 @@ import { parseConfig, type Env, type ParsedConfig } from '../env';
 import {
   RULES,
   type Decision,
+  type DecisionKind,
   type Element,
   type Pick,
   type Projection,
@@ -179,6 +181,7 @@ export interface ExistingSquad {
 }
 
 type AuditEntry = Parameters<LlmAuditSink['record']>[0];
+type GateEntry = Parameters<NonNullable<LlmAuditSink['recordGate']>>[0];
 
 /**
  * Adapts the `LlmAuditSink` shape onto the `ai_calls` row shape.
@@ -188,15 +191,32 @@ type AuditEntry = Parameters<LlmAuditSink['record']>[0];
  * decision undiagnosable from the data: there was no way to distinguish the
  * model refusing the JSON schema from the model never having been called.
  * Every attempt now lands a row, whatever the outcome.
+ *
+ * `recordGate` stamps the gate's verdict onto that same row rather than
+ * inserting a new one -- `id` is `logAiCall`'s return value for the attempt
+ * `record` most recently logged for this `decisionKind`, remembered in
+ * `lastIdByKind` across the two calls (see `AiCallGateUpdate`'s doc comment
+ * in src/db/types.ts for why the verdict belongs on that row rather than a
+ * separate one). Each `decideSquad`/`decideLineup`/`decideTransfer` call
+ * site below constructs its OWN `makeAuditSink(deps)`, so in practice this
+ * map only ever holds one entry at a time -- but keying by `decisionKind`
+ * (rather than a single `lastId` variable) matches `LlmAuditSink`'s
+ * documented contract exactly, at no extra cost.
  */
-function makeAuditSink(deps: {
+// Exported (only) for test/gateAudit.test.ts's direct unit test of the
+// row-id-tracking/fallback logic below -- every production caller in this
+// file still goes through the `decideSquad`/`decideLineup`/`decideTransfer`
+// call sites further down.
+export function makeAuditSink(deps: {
   logAiCall: (input: AiCallInput) => Promise<number>;
   updateAiCallGate: (id: number, gate: AiCallGateUpdate) => Promise<void>;
   modelName: string;
 }): LlmAuditSink {
+  const lastIdByKind = new Map<DecisionKind, number>();
+
   return {
     record: async (e: AuditEntry) => {
-      await deps.logAiCall({
+      const id = await deps.logAiCall({
         ts: new Date().toISOString(),
         decisionKind: e.decisionKind,
         model: deps.modelName,
@@ -205,9 +225,48 @@ function makeAuditSink(deps: {
         schemaValid: e.outcome === 'ok',
         validationOutcome: e.outcome,
         repaired: false,
-        gateVerdict: undefined,
         estNeuronsIn: e.estNeuronsIn,
         estNeuronsOut: e.estNeuronsOut,
+      });
+      lastIdByKind.set(e.decisionKind, id);
+    },
+    recordGate: async (e: GateEntry) => {
+      const gateVerdict: GateVerdict = e.accept ? 'accept' : 'override';
+      const id = lastIdByKind.get(e.decisionKind);
+      if (id !== undefined) {
+        await deps.updateAiCallGate(id, {
+          gateVerdict,
+          gateSource: e.source,
+          gateOverrideReason: e.overrideReason,
+          llmScore: e.llmScore,
+          deterministicScore: e.deterministicScore,
+        });
+        return;
+      }
+      // Should never happen -- the gate only runs after a `record` call has
+      // already logged the attempt it is judging, so a row id is always
+      // remembered by the time `recordGate` fires. This is a safety net,
+      // not the normal path: if that invariant is ever violated (a future
+      // caller sharing one sink across kinds in a way that clears the map,
+      // or invoking `recordGate` without a preceding `record`), the verdict
+      // must still land somewhere rather than silently vanish -- which is
+      // exactly the bug this whole feature exists to fix. The prompt names
+      // it explicitly as a gate-only record so it reads correctly in the
+      // dashboard rather than looking like a provider response that never
+      // happened.
+      await deps.logAiCall({
+        ts: new Date().toISOString(),
+        decisionKind: e.decisionKind,
+        model: deps.modelName,
+        prompt: `gate-only record (attempt ${e.attempt}): no logged call row was found to stamp`,
+        repaired: false,
+        gateVerdict,
+        gateSource: e.source,
+        gateOverrideReason: e.overrideReason,
+        llmScore: e.llmScore,
+        deterministicScore: e.deterministicScore,
+        estNeuronsIn: 0,
+        estNeuronsOut: 0,
       });
     },
   };
