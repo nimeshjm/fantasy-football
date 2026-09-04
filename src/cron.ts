@@ -115,6 +115,20 @@ export interface CronPorts {
    * see src/index.ts). Returns the freshly-fetched events for flip
    * detection. */
   refreshBootstrap(): Promise<MinimalEvent[]>;
+  /** Fetches `fixtures/?event={eventId}` for the gameweek being decided next
+   * and upserts it into D1, returning how many fixtures were stored.
+   *
+   * The decide path reads fixtures from D1, never from the API
+   * (`decideCommit.ts`'s `project` step), and `IngestWorkflow` only ever
+   * writes fixtures for FINISHED gameweeks -- so without this the upcoming
+   * gameweek's fixtures are structurally absent at decision time, every
+   * projection comes back `xpts: 0`, and the deterministic gate compares 0
+   * against 0 and accepts unconditionally. See issue #24.
+   *
+   * Deliberately on the hourly tick rather than inside the `project` step:
+   * the decision then depends only on D1 and gets ~24 chances a day to have
+   * succeeded, instead of one live fetch on the critical path at T-60m. */
+  refreshUpcomingFixtures(eventId: number): Promise<number>;
   /** Resolves the cookie and asks `me/` whether it still authenticates.
    * Returns the cookie's FINGERPRINT, never the cookie -- src/cron.ts must
    * not be a place a session cookie can reach. */
@@ -150,6 +164,9 @@ export interface CronTickResult {
   /** What the tick did about the session alert. `null` when the alert block
    * itself failed (it is logged and swallowed -- see `runSessionCheck`). */
   alertAction: SessionAlertAction | null;
+  /** Fixtures stored for the next gameweek, `null` when there was no next
+   * event to fetch for or the fetch failed. */
+  upcomingFixtures: number | null;
 }
 
 /**
@@ -168,6 +185,7 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
         ingestDispatched: [],
         sessionHealthy: null,
         alertAction: null,
+        upcomingFixtures: null,
       };
     }
 
@@ -188,6 +206,28 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
 
     const nextEvent = findNextEvent(freshEvents, now);
     const plan = planCronActions({ now, nextEvent, previousEvents, freshEvents });
+
+    // Its own try/catch, and BEFORE the deadline dispatch: a fixtures fetch
+    // that fails must never cost us the decide/lineup workflow, which can
+    // still run on whatever an earlier tick already stored.
+    let upcomingFixtures: number | null = null;
+    if (nextEvent !== null) {
+      try {
+        upcomingFixtures = await ports.refreshUpcomingFixtures(nextEvent.id);
+      } catch (err) {
+        // Logged, not swallowed silently -- a run of these is what precedes
+        // an all-zero projection set.
+        await ports.logAction({
+          ts: now.toISOString(),
+          kind: 'fixtures-refresh-error',
+          intent: { event: nextEvent.id },
+          response: { error: err instanceof Error ? err.message : String(err) },
+          dryRun: false,
+          source: 'cron',
+          ok: false,
+        });
+      }
+    }
 
     if (plan.deadlineAction !== 'none' && plan.deadlineEventId !== null) {
       const mode = plan.deadlineAction === 'decide' ? 'full' : 'lineup-only';
@@ -211,6 +251,7 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
       ingestDispatched: plan.ingestEventIds,
       sessionHealthy,
       alertAction,
+      upcomingFixtures,
     };
   } catch (err) {
     // Belt-and-suspenders: nothing above should throw uncaught, but the
@@ -235,6 +276,7 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
       ingestDispatched: [],
       sessionHealthy: null,
       alertAction: null,
+      upcomingFixtures: null,
     };
   }
 }

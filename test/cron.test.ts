@@ -152,6 +152,7 @@ function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
     isEnabled: vi.fn().mockResolvedValue(true),
     getPreviousEvents: vi.fn().mockResolvedValue([]),
     refreshBootstrap: vi.fn().mockResolvedValue([]),
+    refreshUpcomingFixtures: vi.fn().mockResolvedValue(9),
     checkSession: vi
       .fn()
       .mockResolvedValue({ healthy: true, entry: 1, cookieFingerprint: 'abc123abc123' }),
