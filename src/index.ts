@@ -14,7 +14,7 @@ import { notFound } from './adminAuth';
 import { runScheduledTick, type CronPorts, type MinimalEvent } from './cron';
 import type { Env } from './env';
 import { FantasyApiClient } from './api/client';
-import { getBootstrapStatic } from './api/endpoints';
+import { getBootstrapStatic, getFixtures } from './api/endpoints';
 import { checkSessionHealth, getSession as getFantasySession } from './api/session';
 import { createSessionStore } from './sessionStore';
 import { sendWebhookAlert } from './alert';
@@ -35,6 +35,7 @@ import {
   setSessionOk,
   upsertElements,
   upsertEvents,
+  upsertFixtures,
   upsertTeams,
 } from './db';
 import type { GameEvent } from './types';
@@ -69,6 +70,16 @@ function buildCronPorts(env: Env): CronPorts {
       await upsertTeams(env.DB, bootstrap.teams);
       await upsertElements(env.DB, bootstrap.elements, updatedAt);
       return bootstrap.events.map(toMinimal);
+    },
+
+    // Small fetch (~9 fixtures) next to the 1 MB bootstrap one already in
+    // this tick. `upsertFixtures` skips rows whose state is unchanged, so
+    // re-polling the same list hourly costs almost nothing in D1 writes
+    // while still picking up kickoff-time changes and postponements.
+    refreshUpcomingFixtures: async (eventId) => {
+      const fixtures = await getFixtures(client, eventId);
+      await upsertFixtures(env.DB, fixtures);
+      return fixtures.length;
     },
 
     checkSession: async () => {
