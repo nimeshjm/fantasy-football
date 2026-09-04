@@ -352,3 +352,103 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
     expect(projectAll([], 3)).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// projectAll -- issue #24 regression: projections were all zero in
+// production because the upcoming gameweek's fixtures never reached D1
+// ---------------------------------------------------------------------------
+
+describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () => {
+  it('produces non-zero, non-identical xpts for players on teams with a fixture and real trailing minutes', () => {
+    // This is the assertion whose absence let every production projection
+    // ship as `xpts: 0` for an entire event (issue #24): nothing anywhere
+    // checked that the happy path -- teams WITH a fixture, players WITH
+    // trailing minutes -- actually produces a real, varied spread of
+    // positive values. A bare `> 0` per player would also have passed on an
+    // accidental constant (e.g. every player collapsing to the same
+    // appearance-points-only figure), so this also asserts the spread.
+    const gk = makeElement({ team: 1, element_type: Position.GK, now_cost: 45 });
+    const def = makeElement({ team: 1, element_type: Position.DEF, now_cost: 45 });
+    const mid = makeElement({ team: 2, element_type: Position.MID, now_cost: 60 });
+    const fwd = makeElement({ team: 2, element_type: Position.FWD, now_cost: 85 });
+    const elements = [gk, def, mid, fwd];
+
+    const trailingFor = (elementId: number, overrides: Partial<GwStats>): GwStats[] =>
+      [1, 2, 3, 4].map((event) =>
+        makeGwStats({
+          element_id: elementId,
+          event,
+          fixture_id: event,
+          minutes: 90,
+          ...overrides,
+        }),
+      );
+    const trailingStatsByElement = new Map([
+      [gk.id, trailingFor(gk.id, { saves: 4 })],
+      [def.id, trailingFor(def.id, { shots_on_target: 1 })],
+      [mid.id, trailingFor(mid.id, { shots_on_target: 2, goals_scored: 1, assists: 1 })],
+      [fwd.id, trailingFor(fwd.id, { shots_on_target: 4, goals_scored: 2 })],
+    ]);
+    const fixturesByTeam = new Map([
+      [1, { opponent: 2, isHome: true }],
+      [2, { opponent: 1, isHome: false }],
+    ]);
+
+    const projections = projectAll(elements, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam,
+      trailingStatsByElement,
+    });
+
+    expect(projections).toHaveLength(4);
+    for (const p of projections) {
+      expect(p.xmins).toBeGreaterThan(0);
+      expect(p.xpts).toBeGreaterThan(0);
+    }
+    // A genuine spread -- guards against an accidental constant that a bare
+    // per-player "> 0" check would miss entirely.
+    const xptsValues = projections.map((p) => p.xpts);
+    const distinctValues = new Set(xptsValues.map((x) => x.toFixed(6)));
+    expect(distinctValues.size).toBeGreaterThan(1);
+    expect(Math.max(...xptsValues) - Math.min(...xptsValues)).toBeGreaterThan(1);
+  });
+
+  it('projects {xmins:0, xpts:0} for a team with no fixture in the event, while a team that DOES have one in the same event projects normally', () => {
+    // Pins the per-team blank-gameweek branch (projection.ts:265-269) that
+    // the event-wide "abort if the whole event has zero fixtures" guard
+    // (issue #24's fix, plan step 2) depends on staying team-scoped: a
+    // blank gameweek for SOME teams is a normal, expected weekly occurrence
+    // and must keep projecting 0 for just those teams' players -- it must
+    // never be conflated with (or masked by) the whole-event failure mode
+    // this issue is about.
+    const blankTeamPlayer = makeElement({ team: 1, element_type: Position.MID });
+    const fixturedTeamPlayer = makeElement({ team: 2, element_type: Position.MID });
+    const trailingFor = (elementId: number): GwStats[] =>
+      [1, 2, 3, 4].map((event) =>
+        makeGwStats({
+          element_id: elementId,
+          event,
+          fixture_id: event,
+          minutes: 90,
+          goals_scored: 1,
+        }),
+      );
+    const trailingStatsByElement = new Map([
+      [blankTeamPlayer.id, trailingFor(blankTeamPlayer.id)],
+      [fixturedTeamPlayer.id, trailingFor(fixturedTeamPlayer.id)],
+    ]);
+    // Team 1 (blankTeamPlayer's team) is absent from the map -- a blank
+    // gameweek for that team only. Team 2 has a fixture in the same event.
+    const fixturesByTeam = new Map([[2, { opponent: 3, isHome: true }]]);
+
+    const [blankResult, fixturedResult] = projectAll([blankTeamPlayer, fixturedTeamPlayer], 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam,
+      trailingStatsByElement,
+    });
+
+    expect(blankResult).toMatchObject({ xmins: 0, xpts: 0 });
+    expect(fixturedResult!.xmins).toBeGreaterThan(0);
+    expect(fixturedResult!.xpts).toBeGreaterThan(0);
+  });
+});
