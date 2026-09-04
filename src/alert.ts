@@ -36,6 +36,31 @@ export async function sendWebhookAlert(
   env: AlertEnv,
   payload: SessionAlertPayload,
 ): Promise<AlertDelivery> {
+  return postAlert(env, summarize(payload), { ...payload });
+}
+
+/**
+ * The same webhook, for an alert that is not about the session: takes the
+ * one-line summary ready-made instead of deriving it from a
+ * `SessionAlertPayload`.
+ *
+ * Added for #24's blank-fixture guard, which has to be loud for exactly the
+ * reason the session alert does -- the failure it reports is invisible from
+ * the outside, and the agent keeps running while it is true.
+ */
+export async function sendOpsAlert(
+  env: AlertEnv,
+  summary: string,
+  fields: Record<string, unknown> = {},
+): Promise<AlertDelivery> {
+  return postAlert(env, summary, fields);
+}
+
+async function postAlert(
+  env: AlertEnv,
+  summary: string,
+  fields: Readonly<Record<string, unknown>>,
+): Promise<AlertDelivery> {
   const url = env.ALERT_WEBHOOK_URL;
   if (!url) {
     return { delivered: false, detail: 'ALERT_WEBHOOK_URL is not set' };
@@ -59,13 +84,11 @@ export async function sendWebhookAlert(
   // `text` and ignores `content`, Discord requires `content` and ignores
   // `text`. Sending only `text` gets a Discord webhook rejected outright with
   // `400 Cannot send an empty message` -- it needs one of content/embeds/file.
-  const summary = summarize(payload);
-
   try {
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ text: summary, content: summary, ...payload }),
+      body: JSON.stringify({ text: summary, content: summary, ...fields }),
       signal: AbortSignal.timeout(ALERT_TIMEOUT_MS),
     });
     if (!response.ok) {
