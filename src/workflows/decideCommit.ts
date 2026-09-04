@@ -59,6 +59,7 @@ import {
   updateMyTeam as apiUpdateMyTeam,
   type EntryCreateRequest,
   type MyTeamResponse,
+  orderPicksForMyTeam,
   sortPicksByTypeOrder,
 } from '../api/endpoints';
 import { ApiValidationError } from '../api/client';
@@ -605,7 +606,14 @@ async function runTransferAndLineup(
   });
   await logDecision(deps, 'lineup', lineupDecision, true);
 
-  const finalPicks = lineupDecision.picks ?? newOwnedPicks;
+  // `my-team/` rejects an XI that is not in element_type order, so the
+  // decision's slot ordering is normalised BEFORE anything consumes it --
+  // the idempotency check, the POST and the saved squad state all have to
+  // agree on positions or the next tick sees a phantom mismatch.
+  const finalPicks = orderPicksForMyTeam(
+    lineupDecision.picks ?? newOwnedPicks,
+    new Map(deps.elements.map((e) => [e.id, e.element_type as number])),
+  );
 
   if (deps.config.dryRun) {
     return {
@@ -735,7 +743,14 @@ async function runLineupOnly(
   });
   await logDecision(deps, 'lineup-recheck', lineupDecision, true);
 
-  const finalPicks = lineupDecision.picks ?? squad.picks;
+  // `my-team/` rejects an XI that is not in element_type order, so the
+  // decision's slot ordering is normalised BEFORE anything consumes it --
+  // the idempotency check, the POST and the saved squad state all have to
+  // agree on positions or the next tick sees a phantom mismatch.
+  const finalPicks = orderPicksForMyTeam(
+    lineupDecision.picks ?? squad.picks,
+    new Map(deps.elements.map((e) => [e.id, e.element_type as number])),
+  );
 
   if (deps.config.dryRun) {
     return {
@@ -792,7 +807,14 @@ export async function runDecisionCore(
       ts: nowIso(),
       kind: 'decide-commit-error',
       intent: { mode },
-      response: { error: err instanceof Error ? err.message : String(err) },
+      // `fieldErrors` is the only place the live API says WHY it rejected a
+      // write (`squad_not_type_order` and friends). Logging just the message
+      // leaves 'Validation error from POST my-team/{id}/' as the whole record
+      // of a failed commit -- useless in the minutes before a deadline.
+      response: {
+        error: err instanceof Error ? err.message : String(err),
+        ...(err instanceof ApiValidationError ? { fieldErrors: err.fieldErrors } : {}),
+      },
       dryRun: deps.config.dryRun,
       source: 'deterministic-fallback',
       ok: false,

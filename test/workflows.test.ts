@@ -1,4 +1,4 @@
-import { sortPicksByTypeOrder } from '../src/api/endpoints';
+import { orderPicksForMyTeam, sortPicksByTypeOrder } from '../src/api/endpoints';
 /**
  * Tests for the integration layer: src/ownedPlayers.ts, src/baseline.ts, and
  * src/workflows/decideCommit.ts's `runDecisionCore` (driven with fake
@@ -670,5 +670,117 @@ describe('entry-create payload (learned from a real 400)', () => {
       elementTypeById,
     );
     expect(sorted.map((p) => p.element)).toEqual([3, 1, 2]);
+  });
+});
+
+describe('my-team payload ordering (learned from a real 400)', () => {
+  // The squad the agent actually owned for Jornada 5. Types are the live
+  // ones: 315/507 GK, 431/269/187/475/317 DEF, 436/264/126/128/486 MID,
+  // 131/442/405 FWD.
+  const elementTypeById = new Map<number, number>([
+    [315, 1],
+    [507, 1],
+    [431, 2],
+    [269, 2],
+    [187, 2],
+    [475, 2],
+    [317, 2],
+    [436, 3],
+    [264, 3],
+    [126, 3],
+    [128, 3],
+    [486, 3],
+    [131, 4],
+    [442, 4],
+    [405, 4],
+  ]);
+
+  const pick = (element: number, position: number, flags: Partial<Pick> = {}): Pick => ({
+    element,
+    position,
+    is_captain: false,
+    is_vice_captain: false,
+    ...flags,
+  });
+
+  /** The exact lineup the LLM produced on 2026-09-04, which `my-team/`
+   * rejected: a MID (128) sat at position 11, after three FWDs. */
+  const rejectedByTheLiveApi: Pick[] = [
+    pick(315, 1),
+    pick(431, 2),
+    pick(269, 3),
+    pick(187, 4),
+    pick(436, 5),
+    pick(264, 6, { is_vice_captain: true }),
+    pick(126, 7),
+    pick(131, 8),
+    pick(442, 9, { is_captain: true }),
+    pick(405, 10),
+    pick(128, 11),
+    pick(507, 12),
+    pick(486, 13),
+    pick(475, 14),
+    pick(317, 15),
+  ];
+
+  it('sorts the XI into element_type order, which is what the 400 was about', () => {
+    const ordered = orderPicksForMyTeam(rejectedByTheLiveApi, elementTypeById);
+
+    const xiTypes = ordered.slice(0, 11).map((p) => elementTypeById.get(p.element)!);
+    expect(xiTypes).toEqual([...xiTypes].sort((a, b) => a - b));
+    expect(ordered.map((p) => p.position)).toEqual([
+      1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15,
+    ]);
+  });
+
+  it('keeps the same eleven players on the pitch', () => {
+    const ordered = orderPicksForMyTeam(rejectedByTheLiveApi, elementTypeById);
+
+    expect(new Set(ordered.slice(0, 11).map((p) => p.element))).toEqual(
+      new Set([315, 431, 269, 187, 436, 264, 126, 131, 442, 405, 128]),
+    );
+    // Sorting all fifteen by type -- rather than partitioning first -- would
+    // promote the bench keeper into the XI and field two goalkeepers.
+    expect(ordered.slice(0, 11).map((p) => p.element)).not.toContain(507);
+  });
+
+  it('carries captaincy through the renumber', () => {
+    const ordered = orderPicksForMyTeam(rejectedByTheLiveApi, elementTypeById);
+
+    expect(ordered.find((p) => p.is_captain)?.element).toBe(442);
+    expect(ordered.find((p) => p.is_vice_captain)?.element).toBe(264);
+    expect(ordered.filter((p) => p.is_captain)).toHaveLength(1);
+    expect(ordered.filter((p) => p.is_vice_captain)).toHaveLength(1);
+  });
+
+  it('pins the bench keeper to position 12 and leaves the rest of the bench alone', () => {
+    const ordered = orderPicksForMyTeam(rejectedByTheLiveApi, elementTypeById);
+
+    expect(ordered[11]?.element).toBe(507);
+    // 13-15 are a substitution priority list, not a type order.
+    expect(ordered.slice(12).map((p) => p.element)).toEqual([486, 475, 317]);
+  });
+
+  it('leaves an already-valid payload untouched', () => {
+    // Byte-for-byte the ordering the live API accepted on 2026-09-03.
+    const accepted: Pick[] = [
+      pick(315, 1),
+      pick(431, 2),
+      pick(317, 3),
+      pick(269, 4),
+      pick(187, 5),
+      pick(436, 6, { is_vice_captain: true }),
+      pick(126, 7),
+      pick(128, 8),
+      pick(264, 9),
+      pick(131, 10),
+      pick(442, 11, { is_captain: true }),
+      pick(507, 12),
+      pick(486, 13),
+      pick(475, 14),
+      pick(405, 15),
+    ];
+
+    expect(orderPicksForMyTeam(accepted, elementTypeById)).toEqual(accepted);
   });
 });

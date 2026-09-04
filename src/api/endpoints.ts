@@ -231,6 +231,53 @@ export function sortPicksByTypeOrder<T extends { element: number }>(
   );
 }
 
+/** `element_type` of a goalkeeper. The bench keeper owns position 12 --
+ * every other bench slot is a free priority ordering. */
+const GOALKEEPER_TYPE = 1;
+
+/** The number of picks that make up the starting XI. */
+const XI_SIZE = 11;
+
+/**
+ * Orders picks the way `my-team/` accepts them: the starting XI in
+ * `element_type` order, then the bench with the keeper pinned to position 12.
+ *
+ * `my-team/` enforces the same `squad_not_type_order` rule as `entry-create/`
+ * (see `sortPicksByTypeOrder`), but only across positions 1-11 -- a lineup
+ * whose XI listed a MID after a FWD was rejected with a 400, while the same
+ * 15 elements posted fine when the XI ran type-ascending. The bench is NOT
+ * type-ordered: 13-15 are a substitution priority list and keep the order the
+ * decision gave them.
+ *
+ * Sorting all 15 by type would be wrong twice over -- it would put the bench
+ * keeper at position 2 and so submit two goalkeepers in the XI.
+ *
+ * Captaincy rides on the pick, not the slot, so `is_captain` /
+ * `is_vice_captain` survive the renumber untouched.
+ */
+export function orderPicksForMyTeam(
+  picks: readonly Pick[],
+  elementTypeById: ReadonlyMap<number, number>,
+): Pick[] {
+  const typeOf = (p: Pick) => elementTypeById.get(p.element) ?? 0;
+  const byPosition = [...picks].sort((a, b) => a.position - b.position);
+
+  const xi = byPosition.filter((p) => p.position <= XI_SIZE);
+  const bench = byPosition.filter((p) => p.position > XI_SIZE);
+
+  // Array.prototype.sort is stable, so same-type picks keep the relative
+  // order the lineup decision chose for them.
+  const orderedXi = [...xi].sort((a, b) => typeOf(a) - typeOf(b));
+
+  const keeper = bench.find((p) => typeOf(p) === GOALKEEPER_TYPE);
+  const orderedBench = keeper ? [keeper, ...bench.filter((p) => p !== keeper)] : bench;
+
+  return [...orderedXi, ...orderedBench].map((pick, index) => ({
+    ...pick,
+    position: index + 1,
+  }));
+}
+
 export function createEntry(
   client: FantasyApiClient,
   auth: AuthContext,
