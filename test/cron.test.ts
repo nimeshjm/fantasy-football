@@ -289,6 +289,70 @@ describe('runScheduledTick', () => {
 });
 
 // ---------------------------------------------------------------------------
+// Upcoming fixtures refresh (#24)
+// ---------------------------------------------------------------------------
+
+describe('runScheduledTick upcoming fixtures', () => {
+  it('refreshes fixtures for the next event and surfaces the stored count', async () => {
+    const nextEvent = event({ id: 7, deadline_time: '2026-09-10T18:00:00Z' }); // 90 min from `now`
+    const ports = makePorts({
+      refreshBootstrap: vi.fn().mockResolvedValue([nextEvent]),
+      refreshUpcomingFixtures: vi.fn().mockResolvedValue(42),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(ports.refreshUpcomingFixtures).toHaveBeenCalledWith(7);
+    expect(result.upcomingFixtures).toBe(42);
+  });
+
+  it('does not fetch fixtures, and reports null, when there is no next event', async () => {
+    // Every deadline already passed relative to `now` -- findNextEvent
+    // returns null, so there is no gameweek to fetch fixtures for.
+    const pastEvent = event({ id: 7, deadline_time: '2026-09-10T10:00:00Z' });
+    const ports = makePorts({ refreshBootstrap: vi.fn().mockResolvedValue([pastEvent]) });
+    const result = await runScheduledTick(ports);
+
+    expect(ports.refreshUpcomingFixtures).not.toHaveBeenCalled();
+    expect(result.upcomingFixtures).toBeNull();
+  });
+
+  it('logs fixtures-refresh-error and still dispatches DECIDE when the fetch throws (#24)', async () => {
+    // The load-bearing case. Before this refresh existed, fixtures for the
+    // upcoming gameweek were structurally absent at decision time, so every
+    // projection came back xpts: 0 and the deterministic gate accepted
+    // unconditionally -- see the src/cron.ts module doc and issue #24. The
+    // fix must not trade that failure for a new one: a fixtures fetch that
+    // throws is worse than useless if it also takes the decide dispatch down
+    // with it, so this pins that the try/catch around the fetch is truly
+    // isolated from the deadline dispatch below it.
+    const nextEvent = event({ id: 7, deadline_time: '2026-09-10T18:00:00Z' }); // decide window
+    const ports = makePorts({
+      refreshBootstrap: vi.fn().mockResolvedValue([nextEvent]),
+      refreshUpcomingFixtures: vi.fn().mockRejectedValue(new Error('fixtures fetch failed')),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(result.upcomingFixtures).toBeNull();
+    const errorLog = ports.logged.find(
+      (l) => (l as { kind: string }).kind === 'fixtures-refresh-error',
+    );
+    expect(errorLog).toMatchObject({ intent: { event: 7 }, ok: false });
+    expect(result.deadlineAction).toBe('decide');
+    expect(ports.decideCreated).toEqual([
+      { id: 'decide-e7', params: { mode: 'full', eventId: 7 } },
+    ]);
+  });
+
+  it('does not fetch fixtures at all when the kill switch is off', async () => {
+    const ports = makePorts({ isEnabled: vi.fn().mockResolvedValue(false) });
+    const result = await runScheduledTick(ports);
+
+    expect(ports.refreshUpcomingFixtures).not.toHaveBeenCalled();
+    expect(result.upcomingFixtures).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // Session alerting
 // ---------------------------------------------------------------------------
 
