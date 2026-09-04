@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { Position, type Element, type Pick } from '../src/types';
+import { Position, type Element, type Pick, type Projection } from '../src/types';
 import {
   decideLineup,
   decideSquad,
@@ -30,6 +30,7 @@ import { StubProvider } from '../src/ai/provider';
 import type { ShortlistEntry } from '../src/ai/prompts';
 import { makeAuditSink } from '../src/workflows/decideCommit';
 import type { AiCallGateUpdate, AiCallInput } from '../src/db';
+import { makeLineupBaseline } from '../src/baseline';
 
 // ---------------------------------------------------------------------------
 // Shared synthetic universe helpers
@@ -406,6 +407,188 @@ describe('lineup gate audit trail', () => {
     expect(gate.source).toBe('llm');
     expect(gate.llmScore).toBe(96);
     expect(gate.deterministicScore).toBe(100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lineup gate with REAL (non-fake) baseline scoring -- issue #24
+// ---------------------------------------------------------------------------
+
+/**
+ * The two `lineup gate audit trail` tests above score through a hand-rolled
+ * `DeterministicBaseline` whose `scoreLineup` is keyed off which captain it
+ * sees -- exactly right for proving decide.ts/validate.ts wire the gate
+ * correctly, but it can't tell you whether the gate does anything once real
+ * xPts numbers are in play. That question is issue #24 itself: with the
+ * upcoming gameweek's fixtures never reaching D1, every projection shipped
+ * as `xpts: 0`, so `gap = deterministicScore - llmScore` was always `0 - 0`
+ * and the lineup gate accepted unconditionally on every one of the three
+ * gated lineup calls production had made.
+ *
+ * These two tests instead build a real `Projection[]` and wire it through
+ * the actual `makeLineupBaseline` (src/baseline.ts), which calls the real
+ * `bestLineup`/`scoreLineup` from src/optimizer/lineup.ts -- nothing here is
+ * a scoring fake. They reuse `makeOwnedFifteen`'s structural grouping
+ * (`starters` = the top-N-per-position slice, `bench` = the rest) by simply
+ * assigning strictly higher xPts to every `starters` entry than to its
+ * position's `bench` entry: that makes `starters` ALSO the true
+ * deterministic optimum (nothing to special-case), so the "deliberately
+ * bad" LLM lineup below can just be that same grouping with, at every
+ * position, its single best player benched in favour of the bench player --
+ * benching the highest-xPts players, per the issue's own example.
+ */
+function buildProjectionsAndOwnedPicks(
+  starters: Element[],
+  bench: Element[],
+  starterXpts: number[],
+  benchXpts: number[],
+): { projections: Projection[]; ownedPicks: Pick[] } {
+  const xptsById = new Map<number, number>();
+  starters.forEach((el, i) => xptsById.set(el.id, starterXpts[i]!));
+  bench.forEach((el, i) => xptsById.set(el.id, benchXpts[i]!));
+  const all = [...starters, ...bench];
+  const projections: Projection[] = all.map((el) => ({
+    element_id: el.id,
+    event: 5,
+    xmins: 90,
+    xpts: xptsById.get(el.id)!,
+  }));
+  const ownedPicks: Pick[] = all.map((el, i) => ({
+    element: el.id,
+    position: i + 1,
+    is_captain: false,
+    is_vice_captain: false,
+  }));
+  return { projections, ownedPicks };
+}
+
+// Strictly decreasing within each position group (1 GK, 4 DEF, 4 MID, 2 FWD
+// starters -- see makeOwnedFifteen), so `starters` is provably the
+// top-N-by-xPts slice at every position, and therefore the true
+// deterministic optimum.
+const REAL_STARTER_XPTS = [20, 30, 25, 24, 23, 28, 22, 21, 20, 26, 19];
+const REAL_BENCH_XPTS = [1, 1, 1, 1];
+
+/** Builds the "deliberately bad" LLM lineup: at every position, bench the
+ * single highest-xPts starter and start the (lowest-xPts) bench player
+ * instead. */
+function benchTheBestAtEveryPosition(
+  starters: Element[],
+  bench: Element[],
+): { badStarters: Element[]; badBench: Element[] } {
+  // Slices matching makeOwnedFifteen's fixed starter layout: [1 GK, 4 DEF,
+  // 4 MID, 2 FWD].
+  const gk = starters[0]!;
+  const def = starters.slice(1, 5); // best DEF first, weakest last
+  const mid = starters.slice(5, 9);
+  const fwd = starters.slice(9, 11);
+  const [benchGk, benchDef, benchMid, benchFwd] = bench;
+
+  const badStarters = [
+    benchGk!, // swap out the best (only) GK, swap in the bench GK
+    ...def.slice(1), // keep the 3 weaker DEF starters
+    benchDef!, // swap in the bench DEF instead of the best one
+    ...mid.slice(1),
+    benchMid!,
+    fwd[1]!, // keep the weaker FWD starter
+    benchFwd!, // swap in the bench FWD instead of the best one
+  ];
+  const badBench = [gk, def[0]!, mid[0]!, fwd[0]!]; // the 4 benched-highest players
+  return { badStarters, badBench };
+}
+
+describe('lineup gate with real (non-fake) baseline scoring -- issue #24', () => {
+  it('overrides a deliberately bad LLM lineup (benching the highest-xPts players) when projections are real and non-zero', async () => {
+    const { elements, owned, starters, bench } = makeOwnedFifteen();
+    const { projections, ownedPicks } = buildProjectionsAndOwnedPicks(
+      starters,
+      bench,
+      REAL_STARTER_XPTS,
+      REAL_BENCH_XPTS,
+    );
+    const baseline = makeLineupBaseline(elements, projections, ownedPicks);
+    const { badStarters, badBench } = benchTheBestAtEveryPosition(starters, bench);
+
+    // Captain/vice within the bad starting XI -- which two doesn't matter,
+    // only that the lineup is otherwise legal.
+    const provider = new StubProvider({
+      ok: true,
+      text: JSON.stringify(lineupPayload(badStarters, badBench, badStarters[1]!, badStarters[2]!)),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideLineup({
+      audit,
+      owned,
+      elements,
+      provider,
+      budget: unusedBudget,
+      baseline,
+    });
+
+    expect(decision.source).toBe('deterministic-gate');
+    expect(decision.overrideReason).toBeTruthy();
+
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(false);
+    expect(typeof gate.llmScore).toBe('number');
+    expect(typeof gate.deterministicScore).toBe('number');
+    // Both scores are real and non-zero -- this is the whole point: with
+    // production's all-zero projections, this comparison could never have
+    // looked like this.
+    expect(gate.llmScore).toBeGreaterThan(0);
+    expect(gate.deterministicScore).toBeGreaterThan(0);
+    // gap exceeds the default 8-point LINEUP_ABS_FLOOR by a wide margin, so
+    // this isn't a borderline threshold hit that a small refactor could flip.
+    const gap = gate.deterministicScore! - gate.llmScore!;
+    expect(gap).toBeGreaterThan(8);
+  });
+
+  it('DOCUMENTS the production pathology (issue #24): with all-zero projections, the exact same bad lineup yields gap === 0 and is accepted', async () => {
+    // This test is not "proof the gate works" -- it is the opposite, kept
+    // deliberately alongside the test above so nobody mistakes a green
+    // "accept" result here for a healthy gate. It accepts for the exact
+    // reason production shipped several blind lineup decisions undetected
+    // (issue #24): when every projection is `xpts: 0`,
+    // `gap = deterministicScore - llmScore` is `0 - 0 = 0`, which never
+    // exceeds `LINEUP_ABS_FLOOR` no matter how bad the LLM's lineup
+    // actually is -- the SAME deliberately-bad lineup from the test above,
+    // benching the highest-xPts player at every position, sails through.
+    const { elements, owned, starters, bench } = makeOwnedFifteen();
+    const zeros = (n: number): number[] => Array(n).fill(0) as number[];
+    const { projections, ownedPicks } = buildProjectionsAndOwnedPicks(
+      starters,
+      bench,
+      zeros(11),
+      zeros(4),
+    );
+    const baseline = makeLineupBaseline(elements, projections, ownedPicks);
+    const { badStarters, badBench } = benchTheBestAtEveryPosition(starters, bench);
+
+    const provider = new StubProvider({
+      ok: true,
+      text: JSON.stringify(lineupPayload(badStarters, badBench, badStarters[1]!, badStarters[2]!)),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideLineup({
+      audit,
+      owned,
+      elements,
+      provider,
+      budget: unusedBudget,
+      baseline,
+    });
+
+    expect(decision.source).toBe('llm');
+    expect(decision.overrideReason).toBeUndefined();
+
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(true);
+    expect(gate.llmScore).toBe(0);
+    expect(gate.deterministicScore).toBe(0);
   });
 });
 
