@@ -49,6 +49,8 @@
  * of that hand-off below for why.
  */
 
+import { sendOpsAlert } from '../alert';
+import type { AlertDelivery } from '../sessionHealth';
 import { getAuthContext, type AuthContext } from '../api/session';
 import { FantasyApiClient } from '../api/client';
 import {
@@ -307,6 +309,25 @@ export interface DecisionCoreDeps {
   neuronBudget: NeuronBudget;
   /** Model id, recorded on every ai_calls row. */
   modelName: string;
+
+  /**
+   * True iff the active projection strategy needed fixtures (`model-v2`)
+   * and D1 came back with ZERO fixture rows for the WHOLE of `eventId` --
+   * see the guard at the top of `runDecisionCore` (issue #24). Always
+   * `false` under `ep-next`, which never reads `fixtures` at all, and false
+   * whenever the event has a fixture for at least one team: a blank
+   * gameweek for SOME teams is normal (`UpcomingFixtureInfo`'s own doc) and
+   * must never trip this. This is the one signal that turns "every
+   * projection for this event is 0 because there is nothing to project
+   * from" into "stop before a decision is made from it", rather than
+   * silently producing an arbitrary lineup and committing it.
+   */
+  blankFixturesForEvent: boolean;
+  /** Fires the ops webhook (`sendOpsAlert`, src/alert.ts) for something
+   * that is not a session-health event. Never throws -- same contract as
+   * `sendOpsAlert` itself -- so a dead/misconfigured webhook can only ever
+   * cost a `{delivered: false}`, never break the abort path that calls it. */
+  sendOpsAlert: (summary: string, fields?: Record<string, unknown>) => Promise<AlertDelivery>;
 
   /** Re-reads fresh `now_cost`/`selling_price` immediately before a write --
    * prices move hourly and `price_change_locked_until` exists, so a
@@ -782,6 +803,60 @@ async function runLineupOnly(
 }
 
 /**
+ * Issue #24: the fail-closed path for a whole event with zero fixtures in
+ * D1. Before this guard existed, EVERY decision ever made ran on `xpts: 0`
+ * for all ~667 players -- the deterministic optimum degenerated to an
+ * arbitrary legal formation, and `src/ai/validate.ts`'s gate compared `0`
+ * against `0` and accepted unconditionally, so the LLM's answer (also
+ * shaped by nothing) went straight to a live POST. Structural validity
+ * (`hardLineupViolations`) was the only check actually protecting a commit.
+ *
+ * Committing a blind lineup here is strictly worse than doing nothing: the
+ * previously-committed squad/lineup is a real, considered decision from the
+ * last tick that DID have fixtures, and it keeps playing (and scoring)
+ * exactly as it would have anyway. Overwriting it with a coin-flip formation
+ * trades a good, slightly-stale decision for a worthless fresh one, on the
+ * one asset (the live FPL entry) this whole system exists to manage. So
+ * this returns before either `decideSquad`/`decideTransfer`/`decideLineup`
+ * or any `post*` call runs -- there is no "safer" partial decision to make
+ * from zero signal, only the choice between abstaining and gambling.
+ *
+ * Deliberately narrow: `deps.blankFixturesForEvent` is true only when the
+ * WHOLE event has no fixtures, never for a blank gameweek affecting some
+ * teams (normal, and handled by `projectModelV2` itself per-player) -- see
+ * the field's own doc comment on `DecisionCoreDeps`.
+ */
+async function abortForBlankFixtures(
+  mode: 'full' | 'lineup-only',
+  deps: DecisionCoreDeps,
+): Promise<DecisionCoreResult> {
+  const reason = `no fixtures stored in D1 for gameweek ${deps.eventId}; refusing to decide or commit (issue #24)`;
+  const summary =
+    `Gameweek ${deps.eventId}: D1 has zero fixtures stored for this event, so every player's ` +
+    `projection would be xpts=0 and the deterministic/LLM gate would accept blindly. No squad, ` +
+    `transfer or lineup was committed -- the previously-committed lineup is left in place.`;
+
+  await deps.logAction({
+    ts: nowIso(),
+    kind: 'decide-commit-blank-fixtures',
+    intent: { mode, eventId: deps.eventId },
+    response: { error: reason },
+    dryRun: deps.config.dryRun,
+    source: 'deterministic-fallback',
+    ok: false,
+  });
+
+  // `sendOpsAlert` is contracted never to throw (src/alert.ts) -- an unset
+  // or unreachable webhook must degrade to `{delivered: false}`, never to an
+  // exception that would make the fail-closed path itself the thing that
+  // breaks the tick. The delivery outcome isn't otherwise consulted here:
+  // whether or not anyone was told, the abort still holds.
+  await deps.sendOpsAlert(summary, { eventId: deps.eventId, mode });
+
+  return { ok: false, posted: false, reason };
+}
+
+/**
  * Runs one full decision-and-commit cycle. Never throws -- every failure
  * path returns `{ ok: false, ... }` with the reason logged via
  * `deps.logAction`, per the task brief's "never throw past the workflow
@@ -792,6 +867,13 @@ export async function runDecisionCore(
   deps: DecisionCoreDeps,
 ): Promise<DecisionCoreResult> {
   try {
+    // Issue #24: checked before anything else, ahead of even the
+    // lineup-only/squad-creation/transfer branching below -- a blank event
+    // invalidates every one of those paths identically, since they all run
+    // on the same all-zero `deps.projections`.
+    if (deps.blankFixturesForEvent) {
+      return await abortForBlankFixtures(mode, deps);
+    }
     if (mode === 'lineup-only') {
       if (!deps.existingSquad) {
         return { ok: false, posted: false, reason: 'lineup-only requested but no existing squad' };
@@ -947,13 +1029,20 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
     // `getProjectionStrategy`, no fixtures/ratings/trailing-stats reads) so
     // the read-back below always has a fresh row per player, whichever
     // strategy is active.
-    await step.do('project', async () => {
+    const projectResult = await step.do('project', async () => {
       const elements = await getAllElements(env.DB);
       const strategy = await getProjectionStrategy(env.DB);
 
       let ratings: RatingsModel | undefined;
       let fixturesByTeam: Map<number, UpcomingFixtureInfo> | undefined;
       let trailingStatsByElement: Map<number, GwStats[]> | undefined;
+      // Issue #24: true only when `model-v2` is active AND D1 has ZERO
+      // fixture rows for the WHOLE of `eventId` -- see
+      // `DecisionCoreDeps.blankFixturesForEvent`'s doc comment for why this,
+      // and only this, is the anomaly (a blank gameweek for SOME teams is
+      // normal and must never set this). `ep-next` never reads `fixtures`,
+      // so it never trips this either.
+      let blankFixturesForEvent = false;
 
       if (strategy === STRATEGY_MODEL_V2) {
         ratings = await loadRatingsModel(env.DB);
@@ -966,6 +1055,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         // left out of the map; `projectModelV2` already treats that as 0
         // xmins/xpts.
         const fixtures = await getFixturesForEvent(env.DB, eventId);
+        blankFixturesForEvent = fixtures.length === 0;
         fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
         for (const f of fixtures) {
           fixturesByTeam.set(f.team_h, { opponent: f.team_a, isHome: true });
@@ -1013,8 +1103,16 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       // { element_id, event, xmins, xpts } per attempt is exactly the kind
       // of payload that belongs in D1 (already the source of truth here),
       // not duplicated into workflow state. `decide-and-commit` reads them
-      // straight back out below.
-      return { strategy, projected: projections.length, teamsRated: ratings?.ratings.size ?? 0 };
+      // straight back out below. `blankFixturesForEvent` (a single boolean)
+      // is the one thing from this step `decide-and-commit` cannot re-derive
+      // from D1 alone without re-running the same strategy/fixtures reads --
+      // small enough to carry across the step boundary directly.
+      return {
+        strategy,
+        projected: projections.length,
+        teamsRated: ratings?.ratings.size ?? 0,
+        blankFixturesForEvent,
+      };
     });
 
     const result = await step.do('decide-and-commit', async () => {
@@ -1057,6 +1155,8 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         existingSquad: loaded.existingSquad,
         provider,
         neuronBudget,
+        blankFixturesForEvent: projectResult.blankFixturesForEvent,
+        sendOpsAlert: (summary, fields) => sendOpsAlert(env, summary, fields),
         reloadLivePrices: async () => {
           if (!loaded.existingSquad) return null;
           try {

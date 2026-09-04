@@ -384,6 +384,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
   transferPosts: TransferMove[][];
   myTeamPosts: Pick[][];
   createEntryCalls: number;
+  opsAlerts: { summary: string; fields?: Record<string, unknown> }[];
 } {
   const { elements, projections } = makePool({
     [Position.GK]: 6,
@@ -394,6 +395,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
   const actions: unknown[] = [];
   const transferPosts: TransferMove[][] = [];
   const myTeamPosts: Pick[][] = [];
+  const opsAlerts: { summary: string; fields?: Record<string, unknown> }[] = [];
   let createEntryCalls = 0;
 
   const declineProvider = new StubProvider({ ok: false, error: 'stub declines every call' });
@@ -408,6 +410,11 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     existingSquad: null,
     provider: declineProvider,
     neuronBudget: { remaining: () => 1_000_000, record: () => {} },
+    blankFixturesForEvent: false,
+    sendOpsAlert: async (summary, fields) => {
+      opsAlerts.push({ summary, fields });
+      return { delivered: true };
+    },
     reloadLivePrices: async () => null,
     createEntry: async () => {
       createEntryCalls++;
@@ -435,6 +442,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     actions,
     transferPosts,
     myTeamPosts,
+    opsAlerts,
     get createEntryCalls() {
       return createEntryCalls;
     },
@@ -542,6 +550,229 @@ describe('runDecisionCore: neuron budget cap', () => {
     expect(result.squadDecision?.source).toBe('deterministic-fallback');
     expect(result.lineupDecision?.source).toBe('deterministic-fallback');
     expect(provider.calls).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #24: fail closed when the WHOLE event has zero fixtures in D1
+// ---------------------------------------------------------------------------
+
+describe('runDecisionCore: blank-fixtures guard (issue #24)', () => {
+  it('aborts before any decision or post on the squad-creation path, logging the abort and alerting', async () => {
+    const provider = new StubProvider({ ok: false, error: 'must not be reached' });
+    const deps = makeDeps({
+      provider,
+      blankFixturesForEvent: true,
+      eventId: 6,
+      config: baseConfig({ dryRun: false }),
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.posted).toBe(false);
+    expect(result.reason).toMatch(/fixtures/i);
+    expect(result.reason).toMatch(/6/);
+    // Nothing decided, nothing posted -- not even a call to the LLM.
+    expect(provider.calls).toEqual([]);
+    expect(deps.createEntryCalls).toBe(0);
+    expect(deps.transferPosts).toEqual([]);
+    expect(deps.myTeamPosts).toEqual([]);
+
+    // Exactly one actions_log row: the abort itself, nothing from a
+    // squad/lineup/transfer decision that never ran.
+    expect(deps.actions).toHaveLength(1);
+    const logged = deps.actions[0] as { kind: string; response?: { error?: string } };
+    expect(logged.kind).toBe('decide-commit-blank-fixtures');
+    expect(logged.response?.error).toMatch(/6/);
+
+    // The alert fired exactly once, and its summary stands alone: names the
+    // gameweek, says fixtures are missing, that projections would be zero,
+    // and that nothing was committed.
+    expect(deps.opsAlerts).toHaveLength(1);
+    const [alert] = deps.opsAlerts;
+    expect(alert!.summary).toMatch(/gameweek 6/i);
+    expect(alert!.summary).toMatch(/no fixtures|zero fixtures/i);
+    expect(alert!.summary).toMatch(/xpts.?=?.?0|zero/i);
+    expect(alert!.summary).toMatch(/no .*committed|not committed/i);
+  });
+
+  it('aborts on the existing-squad transfer/lineup path too, leaving the live squad untouched', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 20,
+      cumulativeTransfers: 0,
+    };
+    const provider = new StubProvider({ ok: false, error: 'must not be reached' });
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      provider,
+      blankFixturesForEvent: true,
+      config: baseConfig({ dryRun: false }),
+      // If the guard didn't fire before this ran, the test would still pass
+      // through fine -- proving the guard, not a coincidentally-absent
+      // dependency, is what stops the commit.
+      reloadLivePrices: async () => ({ elements, myTeam: { picks: squadPicks, chips: [] } }),
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.posted).toBe(false);
+    expect(provider.calls).toEqual([]);
+    expect(deps.transferPosts).toEqual([]);
+    expect(deps.myTeamPosts).toEqual([]);
+    expect(deps.actions).toHaveLength(1);
+    expect((deps.actions[0] as { kind: string }).kind).toBe('decide-commit-blank-fixtures');
+    expect(deps.opsAlerts).toHaveLength(1);
+  });
+
+  it('still aborts cleanly when the alert itself fails to deliver (unset webhook, non-https, network error)', async () => {
+    // `sendOpsAlert` (src/alert.ts) is contracted to resolve
+    // `{delivered: false}` rather than throw for exactly these cases -- an
+    // unset ALERT_WEBHOOK_URL, an http:// URL, or a fetch rejection. This
+    // stubs that faithfully (no throw) rather than the happy-path
+    // `{delivered: true}` every other test in this file uses, to prove the
+    // fail-closed abort does not itself depend on the alert succeeding.
+    const provider = new StubProvider({ ok: false, error: 'must not be reached' });
+    const deps = makeDeps({
+      provider,
+      blankFixturesForEvent: true,
+      eventId: 6,
+      config: baseConfig({ dryRun: false }),
+      sendOpsAlert: async () => ({ delivered: false, detail: 'ALERT_WEBHOOK_URL is not set' }),
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.posted).toBe(false);
+    expect(result.reason).toMatch(/fixtures/i);
+    // The abort still holds and is still logged, independent of delivery.
+    expect(deps.createEntryCalls).toBe(0);
+    expect(deps.myTeamPosts).toEqual([]);
+    expect(deps.transferPosts).toEqual([]);
+    expect(deps.actions).toHaveLength(1);
+    expect((deps.actions[0] as { kind: string }).kind).toBe('decide-commit-blank-fixtures');
+  });
+
+  it('also aborts a lineup-only recheck', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 20,
+      cumulativeTransfers: 0,
+    };
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      blankFixturesForEvent: true,
+      config: baseConfig({ dryRun: false }),
+    });
+
+    const result = await runDecisionCore('lineup-only', deps);
+
+    expect(result.ok).toBe(false);
+    expect(result.posted).toBe(false);
+    expect(deps.myTeamPosts).toEqual([]);
+    expect(deps.opsAlerts).toHaveLength(1);
+  });
+
+  it('a normal event with fixtures (blankFixturesForEvent: false) decides and posts as usual', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 50,
+      cumulativeTransfers: 0,
+    };
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      blankFixturesForEvent: false,
+      config: baseConfig({ dryRun: false }),
+      reloadLivePrices: async () => ({ elements, myTeam: { picks: squadPicks, chips: [] } }),
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.lineupDecision).toBeDefined();
+    // No abort row, and no alert -- the guard stayed out of the way.
+    expect(
+      deps.actions.some((a) => (a as { kind: string }).kind === 'decide-commit-blank-fixtures'),
+    ).toBe(false);
+    expect(deps.opsAlerts).toEqual([]);
+  });
+
+  it('a partially-blank event -- some teams with no fixture, but NOT the whole event -- still decides normally', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    // Simulate a blank gameweek for roughly a third of the pool: those
+    // players' own projections are legitimately 0 (as `projectModelV2`
+    // already produces for a team absent from the event's fixture list),
+    // while the event as a whole still has fixtures for everyone else. The
+    // guard must key off `blankFixturesForEvent` (whole-event), never off
+    // individual players' projections being 0.
+    const blankProjections = projections.map((p, i) =>
+      i % 3 === 0 ? { ...p, xpts: 0, xmins: 0 } : p,
+    );
+    expect(blankProjections.some((p) => p.xpts === 0)).toBe(true);
+    expect(blankProjections.some((p) => p.xpts > 0)).toBe(true);
+
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 50,
+      cumulativeTransfers: 0,
+    };
+    const deps = makeDeps({
+      elements,
+      projections: blankProjections,
+      existingSquad,
+      blankFixturesForEvent: false,
+      config: baseConfig({ dryRun: false }),
+      reloadLivePrices: async () => ({ elements, myTeam: { picks: squadPicks, chips: [] } }),
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.lineupDecision).toBeDefined();
+    expect(
+      deps.actions.some((a) => (a as { kind: string }).kind === 'decide-commit-blank-fixtures'),
+    ).toBe(false);
+    expect(deps.opsAlerts).toEqual([]);
   });
 });
 
