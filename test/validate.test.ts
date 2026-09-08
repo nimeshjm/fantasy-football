@@ -183,6 +183,41 @@ describe('validateSquad', () => {
     expect(errors.some((e) => e.rule === 'duplicate-element')).toBe(true);
   });
 
+  it("reports the TRUE per-position shortfall when a duplicate masks a missing position, and does not spuriously flag club-limit for the duplicated player's club (issue #26, same class of hole as validateLineup's formation)", () => {
+    // MID112 (club2) is dropped and MID108 (club1) fills its slot instead,
+    // so the squad still has 15 slots but only 14 distinct players: 4
+    // distinct MID (108,109,110,111) instead of 5, with 108 occupying two
+    // slots. GK/DEF/FWD are untouched (still 2/5/3, all genuinely present).
+    //
+    // Before this fix, position-count/club-limit were built by iterating
+    // `picks` directly (with the duplicate counted twice): MID's slot count
+    // came out to 5 (108 counted twice + 109,110,111) - matching the
+    // required 5 and hiding the true shortfall entirely - while club1's slot
+    // count came out to 4 (101,103,108,108) - one over RULES.teamLimit (3)
+    // - a false 'club-limit' failure for a club that genuinely has only 3
+    // distinct players. Both are exactly the miscount class
+    // validateLineup's 'formation' had (see that fix's comment): a
+    // duplicate inflates whatever bucket it falls in.
+    //
+    // Counting distinct elements (each id from `seen` once) fixes both:
+    // MID correctly shows 4 (a true, reportable shortfall) and club1
+    // correctly shows 3 (no error).
+    const dupIds = [101, 102, 103, 104, 105, 106, 107, 108, 109, 110, 111, 108, 113, 114, 115];
+    const picks: Pick[] = dupIds.map((element, i) => ({
+      element,
+      position: i + 1,
+      is_captain: false,
+      is_vice_captain: false,
+    }));
+    const errors = validateSquad(picks, ALL_ELEMENTS);
+
+    const positionErrors = errors.filter((e) => e.rule === 'position-count');
+    expect(positionErrors).toEqual([
+      { rule: 'position-count', detail: 'position MID: 4 selected, expected 5' },
+    ]);
+    expect(errors.some((e) => e.rule === 'club-limit')).toBe(false);
+  });
+
   it('rejects a non-existent id', () => {
     const picks = picksFor(LEGAL_SQUAD_ELEMENTS.slice(0, 14));
     picks.push({ element: 999999, position: 15, is_captain: false, is_vice_captain: false });
@@ -305,11 +340,89 @@ describe('validateLineup', () => {
   it('rejects a duplicated slot (two players both marked position 9)', () => {
     // Bench player 107 (normally slot 12) is mis-slotted onto starter MID111's
     // slot (9), leaving slot 12 unassigned - both a slot-assignment error and
-    // a starter-count error (12 players now read as "starting").
+    // a starter-count error (12 DISTINCT players now read as "starting" - no
+    // id is repeated here, there are simply too many of them).
     const picks = legalLineup().map((p) => (p.element === 107 ? { ...p, position: 9 } : p));
     const errors = validateLineup(picks, OWNED);
     expect(errors.some((e) => e.rule === 'slot-assignment')).toBe(true);
     expect(errors.some((e) => e.rule === 'starter-count')).toBe(true);
+  });
+
+  // -------------------------------------------------------------------------
+  // issue #26: 'starter-count' and 'formation' must count DISTINCT starting
+  // elements, not starter SLOTS, so a duplicated element id fails for the
+  // reason each rule's name implies rather than only by accident (via
+  // 'duplicate-element'/'owned-not-used'). See
+  // test/fixtures/workers-ai/json-schema-lineup.json for the real Workers AI
+  // capture that exposed this: 11 starter slots with element 302 filling two
+  // of them (10 distinct starters), which the old slot-based counts did not
+  // catch. test/aiSchemaFixtures.test.ts exercises that exact capture; the
+  // two tests below construct the failure directly in this file's synthetic
+  // universe, isolating each rule.
+  // -------------------------------------------------------------------------
+
+  it('rejects 11 starter slots holding only 10 distinct elements (a duplicated starter id, mirroring the real capture)', () => {
+    // Same shape as legalLineup(), but 108 fills two starter slots (in place
+    // of 114) instead of 11 distinct players. A slot-based count sees 11
+    // starter slots and passes; counting distinct elements correctly sees 10.
+    const starters = [101, 103, 104, 105, 106, 108, 109, 110, 111, 113, 108];
+    const bench = [107, 112, 115, 102]; // unchanged from legalLineup(); no overlap with starters
+    const picks: Pick[] = [
+      ...starters.map((element, i) => ({
+        element,
+        position: i + 1,
+        is_captain: element === 108 && i === 5,
+        is_vice_captain: element === 113,
+      })),
+      ...bench.map((element, i) => ({
+        element,
+        position: 12 + i,
+        is_captain: false,
+        is_vice_captain: false,
+      })),
+    ];
+    const errors = validateLineup(picks, OWNED);
+    const starterCountError = errors.find((e) => e.rule === 'starter-count');
+    expect(starterCountError).toBeDefined();
+    expect(starterCountError!.detail).toContain('10 distinct starters');
+    // The starting XI's per-position shape (1 GK, 4 DEF, 4 MID, 1 FWD) is
+    // itself legal under RULES.play - what's wrong is the total headcount,
+    // not the proportions - so 'formation' correctly does NOT fire here.
+    // The next test constructs the case where a duplicate DOES break a
+    // per-position minimum.
+    expect(errors.some((e) => e.rule === 'formation')).toBe(false);
+  });
+
+  it('rejects an illegal formation caused by a duplicated element (2 distinct DEF filling 3 slots, still 11 slots total)', () => {
+    // 11 starter SLOTS: GK101; DEF103,103,104 (2 DISTINCT DEF filling 3
+    // slots - a duplicate); MID108,109,110,111,108 (4 distinct MID filling 5
+    // slots - a second duplicate, keeping the slot total at 11); FWD113,114.
+    // A slot-based count sees 3 DEF slots (at the legal minimum of 3) and
+    // never notices only 2 distinct DEF players are actually starting -
+    // exactly the class of miscount issue #26 reports (there, a duplicated
+    // MID inflated its slot count to 5, still inside the legal 2-5 range).
+    // Counting distinct elements correctly drops DEF to 2, below
+    // RULES.play[DEF].min (3), and 'formation' fires.
+    const starters = [101, 103, 103, 104, 108, 109, 110, 111, 108, 113, 114];
+    const bench = [102, 105, 106, 107]; // arbitrary remaining owned players
+    const picks: Pick[] = [
+      ...starters.map((element, i) => ({
+        element,
+        position: i + 1,
+        is_captain: false,
+        is_vice_captain: false,
+      })),
+      ...bench.map((element, i) => ({
+        element,
+        position: 12 + i,
+        is_captain: false,
+        is_vice_captain: false,
+      })),
+    ];
+    const errors = validateLineup(picks, OWNED);
+    const formationError = errors.find((e) => e.rule === 'formation' && e.detail.startsWith('DEF'));
+    expect(formationError).toBeDefined();
+    expect(formationError!.detail).toBe('DEF: 2 starting, must be 3-5');
   });
 });
 
@@ -545,7 +658,9 @@ describe('decideSquad retry loop', () => {
       xpts: 5,
     }));
     const legalIds = LEGAL_SQUAD_ELEMENTS.map((e) => e.id);
-    const illegalIds = [...legalIds.slice(0, 14), legalIds[0]]; // duplicate -> 'duplicate-element'
+    // Duplicate id -> rejected by parseSquadResult's distinctness check
+    // (issue #26) before validateSquad's 'duplicate-element' rule ever runs.
+    const illegalIds = [...legalIds.slice(0, 14), legalIds[0]];
 
     const provider = new StubProvider([
       { ok: true, text: JSON.stringify({ picks: illegalIds, reason: 'first attempt' }) },
@@ -573,9 +688,15 @@ describe('decideSquad retry loop', () => {
     expect(decision.source).toBe('llm');
     expect(provider.calls).toHaveLength(2);
     // The first call carries no violation note yet.
-    expect(provider.calls[0]!.messages[1]!.content).not.toContain('duplicate-element');
-    // The retry names the specific rule the first answer broke.
-    expect(provider.calls[1]!.messages[1]!.content).toContain('duplicate-element');
+    expect(provider.calls[0]!.messages[1]!.content).not.toContain('distinct ids');
+    // The retry names the specific violation the first answer broke - here,
+    // parseSquadResult's schema-level distinctness check (issue #26), which
+    // now rejects a duplicated id before validateSquad's 'duplicate-element'
+    // rule ever runs, naming the offending id so the retry prompt is
+    // actionable.
+    expect(provider.calls[1]!.messages[1]!.content).toContain(
+      '"picks" must be 15 distinct ids; 101 appears more than once',
+    );
 
     // The returned picks get a placeholder starting formation (decideLineup's
     // job comes later), so they must never read as an illegal formation or a
@@ -586,6 +707,75 @@ describe('decideSquad retry loop', () => {
       ownedFromPicks(decision.picks!, ALL_ELEMENTS),
     ).filter((e) => e.rule === 'formation' || e.rule === 'slot-assignment');
     expect(formationErrors).toEqual([]);
+  });
+
+  it('names a validateSquad rule violation in the retry prompt, not just a parser-level one', async () => {
+    // The test above only proves a PARSER message reaches the retry prompt
+    // (parseSquadResult now rejects a duplicated id before validateSquad
+    // ever runs it - issue #26). That left this file with no test proving a
+    // validateSquad RULE violation still reaches the retry prompt text,
+    // which the old duplicate-element assertion used to cover incidentally.
+    // This closes that gap with an answer that passes parseSquadResult
+    // cleanly (15 distinct, known, in-budget ids) but fails validateSquad's
+    // 'position-count' rule: 3 GK (101, 102, and a 505 standing in for
+    // DEF107 - same cost, same club, so nothing else about the squad
+    // changes) instead of the required 2, and correspondingly 4 DEF instead
+    // of 5. Mirrors the 'rejects wrong per-position counts' case in the
+    // validateSquad describe block above, driven end to end through
+    // decideSquad instead of validateSquad directly.
+    //
+    // Because the SECOND (corrected) answer below is fully legal,
+    // validateSquad returns no errors on attempt 1 and decideSquad returns
+    // right there via gateAndReturnSquad - repairSquad (which CAN attempt a
+    // 'position-count' repair; see applyOneRepair in src/ai/validate.ts) is
+    // never invoked in this run, so this test says nothing about whether
+    // that repair would succeed. The explicit `source === 'llm'` and
+    // `provider.calls` length-2 assertions below are what pin that down: if
+    // a future change let repair fire earlier and silently "fix" the first
+    // attempt instead of retrying, source would read 'llm-repaired' and/or
+    // calls would number fewer than 2, and this test would fail rather than
+    // passing vacuously.
+    const thirdGk = makeElement({ id: 505, element_type: Position.GK, team: 5, now_cost: 45 });
+    const shortlist: ShortlistEntry[] = LEGAL_SQUAD_ELEMENTS.map((element) => ({
+      element,
+      clubShortName: `C${element.team}`,
+      xpts: 5,
+    }));
+    const legalIds = LEGAL_SQUAD_ELEMENTS.map((e) => e.id);
+    const illegalIds = [
+      ...LEGAL_SQUAD_ELEMENTS.filter((e) => e.id !== 107).map((e) => e.id),
+      thirdGk.id,
+    ];
+
+    const provider = new StubProvider([
+      { ok: true, text: JSON.stringify({ picks: illegalIds, reason: 'first attempt' }) },
+      { ok: true, text: JSON.stringify({ picks: legalIds, reason: 'second attempt' }) },
+    ]);
+    const budget: NeuronBudget = { remaining: () => 1_000_000, record: () => {} };
+    const baseline: DeterministicBaseline = {
+      scoreSquad: () => 100,
+      scoreLineup: () => 0,
+      optimalSquad: () => picksFor(LEGAL_SQUAD_ELEMENTS),
+      optimalLineup: () => [],
+      fallbackSquad: () => picksFor(LEGAL_SQUAD_ELEMENTS),
+      fallbackLineup: () => [],
+      fallbackTransfer: () => [],
+    };
+
+    const decision = await decideSquad({
+      shortlist,
+      elements: [...ALL_ELEMENTS, thirdGk],
+      provider,
+      budget,
+      baseline,
+    });
+
+    expect(decision.source).toBe('llm');
+    expect(provider.calls).toHaveLength(2);
+    // The first call carries no violation note yet.
+    expect(provider.calls[0]!.messages[1]!.content).not.toContain('position-count');
+    // The retry names the validateSquad rule the first answer broke.
+    expect(provider.calls[1]!.messages[1]!.content).toContain('position-count');
   });
 
   it('repairs and still returns a well-formed placeholder formation', async () => {

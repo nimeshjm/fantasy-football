@@ -61,6 +61,18 @@ export function validateSquad(picks: Pick[], elements: Element[]): ValidationErr
   const errors: ValidationError[] = [];
   const byId = elementMap(elements);
 
+  // 'squad-size' deliberately stays a SLOT count (picks.length), not a
+  // distinct-element count - same treatment as 'squad-size'/'slot-assignment'
+  // in validateLineup below: it legitimately polices how many picks the
+  // model submitted, and 'duplicate-element' immediately below already
+  // reports the case where those slots don't hold distinct ids. What this
+  // function's downstream counts (position/club/cost, further down) do need
+  // fixing for is a different hole: they were built by iterating `picks`
+  // itself, so a duplicated id inflated whichever position/club bucket it
+  // fell in and double-charged its cost - the same class of bug that let
+  // validateLineup's 'formation' miscount a duplicated starter (see that
+  // fix's comment). Fixed below by iterating `seen` (each element id once)
+  // instead of `picks`.
   if (picks.length !== RULES.squadSize) {
     errors.push(
       err('squad-size', `squad has ${picks.length} players, expected ${RULES.squadSize}`),
@@ -77,20 +89,29 @@ export function validateSquad(picks: Pick[], elements: Element[]): ValidationErr
     errors.push(err('duplicate-element', `duplicate element id(s): ${[...duplicates].join(', ')}`));
   }
 
+  // Everything below counts DISTINCT owned elements, not picks: iterating
+  // `picks` directly (with `seen`, above, deduped) would let a duplicate id
+  // count itself twice towards its position/club bucket and towards
+  // `totalCost` - the same class of hole `validateLineup`'s 'formation' and
+  // 'starter-count' had before this fix (see the long comment there, and
+  // the real capture in test/fixtures/workers-ai/json-schema-lineup.json
+  // that exposed it). `seen` already holds each pick.element exactly once
+  // regardless of how many slots it occupies, so it is the right iteration
+  // source for a squad's true composition and true cost.
   const missingIds: number[] = [];
   const unselectable: number[] = [];
   let totalCost = 0;
   const positionCounts = new Map<Position, number>();
   const clubCounts = new Map<number, number>();
 
-  for (const pick of picks) {
-    const element = byId.get(pick.element);
+  for (const elementId of seen) {
+    const element = byId.get(elementId);
     if (!element) {
-      missingIds.push(pick.element);
+      missingIds.push(elementId);
       continue;
     }
     if (element.removed || !element.can_select) {
-      unselectable.push(pick.element);
+      unselectable.push(elementId);
     }
     totalCost += element.now_cost;
     positionCounts.set(element.element_type, (positionCounts.get(element.element_type) ?? 0) + 1);
@@ -188,12 +209,34 @@ export function validateLineup(picks: Pick[], owned: OwnedPlayer[]): ValidationE
     }
   }
 
+  // 'starter-count' and 'formation' below both count DISTINCT starting
+  // elements, not starting SLOTS ('slot-assignment' above already polices
+  // slots). The real Workers AI capture in
+  // test/fixtures/workers-ai/json-schema-lineup.json returned 11 starter
+  // *slots* with element 302 filling two of them (10 distinct starters) -
+  // counting slots, 'starter-count' saw 11 and passed, and 'formation' saw
+  // the duplicated MID inflate its bucket to 5 (still inside the legal 2-5
+  // range) and passed too. Both rules existed to police exactly this kind
+  // of malformation and neither did; only 'duplicate-element' and
+  // 'owned-not-used' (element 102, a GK, unused anywhere) rejected that
+  // answer, incidentally rather than for the reason each rule's name
+  // implies. Counting distinct elements here means 'starter-count' now
+  // reports the true number of distinct players starting (10, not 11) and
+  // 'formation' reports the true per-position shape of those distinct
+  // starters (MID: 4, not 5) - on that capture 'formation' turns out to
+  // still pass, because 1 GK/3 DEF/4 MID/2 FWD IS a legal shape; what is
+  // wrong is the total headcount, which is exactly 'starter-count's job, not
+  // 'formation's. See test/validate.test.ts for a constructed case (a
+  // duplicated DEF pushing distinct DEF below the minimum) where 'formation'
+  // itself now correctly fires on a duplicate it previously missed.
   const starters = picks.filter((p) => p.position >= 1 && p.position <= RULES.squadPlay);
-  if (starters.length !== RULES.squadPlay) {
+  const distinctStarterIds = new Set(starters.map((p) => p.element));
+  if (distinctStarterIds.size !== RULES.squadPlay) {
     errors.push(
       err(
         'starter-count',
-        `${starters.length} starters (positions 1-${RULES.squadPlay}), expected ${RULES.squadPlay}`,
+        `${distinctStarterIds.size} distinct starters (positions 1-${RULES.squadPlay} hold ` +
+          `${starters.length} slots), expected ${RULES.squadPlay}`,
       ),
     );
   }
@@ -216,11 +259,16 @@ export function validateLineup(picks: Pick[], owned: OwnedPlayer[]): ValidationE
     );
   }
 
-  // Formation minima/maxima, computed over starters whose element is owned
-  // (an unowned starter is already flagged above).
+  // Formation minima/maxima, computed over DISTINCT starting elements that
+  // are owned (an unowned starter is already flagged above). Iterating
+  // `distinctStarterIds` rather than `starters` is what makes this an
+  // element-based count: iterating `starters` directly would count a
+  // duplicated id's slot twice, inflating whichever position it occupies -
+  // exactly the miscount that let the fixture's duplicated MID (302, filling
+  // two starter slots) read as 5 starting MIDs instead of the true 4.
   const positionCounts = new Map<Position, number>();
-  for (const starter of starters) {
-    const ownedPlayer = ownedById.get(starter.element);
+  for (const elementId of distinctStarterIds) {
+    const ownedPlayer = ownedById.get(elementId);
     if (!ownedPlayer) continue;
     positionCounts.set(ownedPlayer.position, (positionCounts.get(ownedPlayer.position) ?? 0) + 1);
   }

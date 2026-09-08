@@ -2,8 +2,10 @@
  * Feeds each json_schema fixture's real, captured answer (see
  * test/fixtures/workers-ai/README.md) through the matching parser in
  * src/ai/schemas.ts, and - for the lineup fixture, whose real answer is
- * malformed - through src/ai/validate.ts as well, to record what this
- * project's pipeline actually does with it.
+ * malformed - through src/ai/validate.ts as well. For the lineup fixture
+ * this now asserts the INVARIANT that the malformed answer is rejected, and
+ * that the count-based rules catch what they were built to catch (issue
+ * #26), rather than pinning in place whichever rules happened to fire first.
  *
  * This is deliberately a separate file from test/provider.test.ts:
  * provider.test.ts tests the envelope-parsing layer
@@ -67,79 +69,90 @@ describe('the real json-schema-lineup.json capture (starters has a duplicate id,
     { element: 403, position: Position.FWD },
   ];
 
-  it('parseLineupResult ACCEPTS the malformed answer: the hand-rolled schema parser checks length and integer-ness only, never distinctness or reason non-emptiness', () => {
-    // This is the true current behaviour, not a gap being papered over: the
-    // fixture's `_captured.note` calls this out explicitly ("schema
-    // minItems/maxItems does not imply distinctness"), and per issue #15's
-    // instructions this is reported rather than fixed here. `starters` has
-    // 11 array entries (302 appears twice, so only 10 distinct ids) and
-    // `reason` is the empty string - both satisfy `parseLineupResult`, which
-    // only checks `isIntegerArray(...) && length === 11` and
-    // `typeof reason === 'string'`.
+  it('parseLineupResult REJECTS the malformed answer at the schema layer, naming the duplicated id (issue #26)', () => {
+    // Before issue #26's fix, `parseLineupResult` accepted this answer: it
+    // checked length and integer-ness only, never distinctness. `starters`
+    // has 11 array entries but 302 fills two of them (10 distinct ids), so
+    // the schema-level distinctness check now added to `parseLineupResult`
+    // (see src/ai/schemas.ts) rejects it before `validateLineup` is ever
+    // reached - cheaper than the full validation round trip below, and the
+    // error names the offending id so a retry prompt (src/ai/decide.ts) can
+    // tell the model exactly what was wrong.
     const text = extractResponseTextForTest(jsonSchemaLineup.envelope);
     const result = parseLineupResult(text!);
 
-    expect(result.ok).toBe(true);
-    if (!result.ok) throw new Error('unreachable');
-    expect(result.value.starters).toEqual(jsonSchemaLineup.envelope.response.starters);
-    expect(result.value.reason).toBe('');
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toContain('302');
   });
 
-  it('validateLineup then REJECTS it, the same way decide.ts builds `picks` and validates them, so the pipeline never ships this answer', () => {
-    // Mirrors decideLineup's construction in src/ai/decide.ts: starters fill
-    // positions 1-11, bench fills 12-15, and any element equal to `captain`/
-    // `vice_captain` is flagged on every pick carrying that element id -
-    // which, because 302 (the duplicate) IS the recorded vice_captain, means
-    // BOTH of its picks get flagged is_vice_captain here.
-    const text = extractResponseTextForTest(jsonSchemaLineup.envelope);
-    const parsed = parseLineupResult(text!);
-    if (!parsed.ok) throw new Error('unreachable (checked above)');
-
+  it('validateLineup ALSO rejects it (defense in depth): the same construction decide.ts would build from the raw envelope response, run through validation without going via the (now rejecting) parser', () => {
+    // The parser now catches this answer before it ever reaches
+    // `validateLineup` in the real pipeline, so this test builds `picks`
+    // directly from the captured envelope response - bypassing
+    // `parseLineupResult` on purpose - to prove `validateLineup` is an
+    // independent safety net, not merely accepting whatever the parser lets
+    // through. Mirrors decideLineup's construction in src/ai/decide.ts:
+    // starters fill positions 1-11, bench fills 12-15, and any element equal
+    // to `captain`/`vice_captain` is flagged on every pick carrying that
+    // element id - which, because 302 (the duplicate) IS the recorded
+    // vice_captain, means BOTH of its picks get flagged is_vice_captain here.
+    const response = jsonSchemaLineup.envelope.response;
     const picks: Pick[] = [
-      ...parsed.value.starters.map((elementId, i) => ({
+      ...response.starters.map((elementId, i) => ({
         element: elementId,
         position: i + 1,
-        is_captain: elementId === parsed.value.captain,
-        is_vice_captain: elementId === parsed.value.vice_captain,
+        is_captain: elementId === response.captain,
+        is_vice_captain: elementId === response.vice_captain,
       })),
-      ...parsed.value.bench.map((elementId, i) => ({
+      ...response.bench.map((elementId, i) => ({
         element: elementId,
         position: 11 + 1 + i,
-        is_captain: elementId === parsed.value.captain,
-        is_vice_captain: elementId === parsed.value.vice_captain,
+        is_captain: elementId === response.captain,
+        is_vice_captain: elementId === response.vice_captain,
       })),
     ];
 
     const errors = validateLineup(picks, owned);
     const rules = new Set(errors.map((e) => e.rule));
 
-    // Exactly three rules fire, and each catches a genuinely different piece
-    // of the malformation:
+    // Four rules fire, each catching a genuinely different piece of the
+    // malformation - this is the invariant issue #26 asks this test to
+    // assert, not the old incidental arrangement:
     //  - 'duplicate-element': element 302 occupies two slots.
     //  - 'owned-not-used': element 102 (a GK) appears nowhere at all - not in
-    //    starters, not in bench. This is a correct rejection of a genuinely
-    //    unused owned player, NOT an artifact of the duplicate.
+    //    starters, not in bench. A correct rejection of a genuinely unused
+    //    owned player, NOT an artifact of the duplicate.
     //  - 'vice-captain-count': 302 is the recorded vice_captain, and BOTH of
     //    its picks match `elementId === vice_captain`, so two picks end up
     //    marked vice-captain instead of exactly one.
+    //  - 'starter-count': now that it counts DISTINCT starting elements
+    //    (src/ai/validate.ts) rather than starter SLOTS, it correctly sees
+    //    10 distinct starters (302 counted once) where 11 are required. This
+    //    is the count rule the issue is about - before the fix it counted 11
+    //    slots and passed.
     //
-    // What does NOT fire, and why that is worth recording even though it does
-    // not cost this fixture a correct rejection: 'starter-count' and
-    // 'formation' both count pick SLOTS, not distinct elements. There are 11
-    // starter slots (so 'starter-count' is satisfied) but only 10 distinct
-    // starting elements, because 302 fills two of them; the starting MID
-    // count comes out to 5 (301, 302, 304, 303, 302 again) - inside the
-    // legal 2-5 range - when only 4 distinct MIDs actually start. Neither
-    // count-based rule is wrong on its own terms, but neither would catch a
-    // duplicate on its own either; it is 'duplicate-element' and
-    // 'owned-not-used' - the distinctness/coverage rules - that reject this
-    // answer, not the formation check. Reported as an observation about
-    // which rule is actually load-bearing here, not a hole to fix (issue #15
-    // scope: report, do not patch validate.ts).
-    expect(rules).toEqual(new Set(['duplicate-element', 'owned-not-used', 'vice-captain-count']));
+    // 'formation' is deliberately NOT expected here, and this is not a
+    // remaining gap: the 10 distinct starters are 1 GK, 3 DEF, 4 MID
+    // (301/302/303/304), 2 FWD - every bucket already legal under RULES.play
+    // (1 GK, 3-5 DEF, 2-5 MID, 1-3 FWD). What's wrong with this lineup is the
+    // *total* headcount (10 instead of 11), which is 'starter-count's job;
+    // there is no distinct-element-shape violation for 'formation' to catch
+    // on THIS capture. 'formation's own fix (also counting distinct
+    // elements, so it can no longer be inflated by a duplicated slot) is
+    // proven separately in test/validate.test.ts with a constructed case
+    // where a duplicate genuinely does push a position's distinct count
+    // outside its legal range.
+    expect(rules).toContain('duplicate-element');
+    expect(rules).toContain('owned-not-used');
+    expect(rules).toContain('vice-captain-count');
+    expect(rules).toContain('starter-count');
+    expect(errors.length).toBeGreaterThan(0);
 
     // decideLineup treats any non-empty `errors` as a retry signal and, after
     // MAX_RETRIES, falls back to the deterministic lineup - this malformed
-    // answer never reaches gateDecision, let alone gets shipped.
+    // answer never reaches gateDecision, let alone gets shipped. In the real
+    // pipeline it will not even get this far: `parseLineupResult` now
+    // rejects it first (see the test above).
   });
 });

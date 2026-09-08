@@ -102,6 +102,26 @@ function isIntegerArray(v: unknown): v is number[] {
   return Array.isArray(v) && v.every((x) => typeof x === 'number' && Number.isInteger(x));
 }
 
+/**
+ * First id that appears more than once in `ids`, or `undefined` if all are
+ * distinct. JSON Schema `minItems`/`maxItems` (see `LINEUP_SCHEMA`/
+ * `SQUAD_SCHEMA` above) bounds array LENGTH only, not distinctness - the
+ * real Workers AI capture in test/fixtures/workers-ai/json-schema-lineup.json
+ * is exactly 11 `starters` entries with element 302 filling two of them
+ * (issue #26). Rejecting that here, at the schema layer, is cheaper than a
+ * full `validateLineup` round trip: `parseLineupResult`/`parseSquadResult`
+ * already fail fast on wrong length/type, this is the same class of
+ * cheap, local check.
+ */
+function findDuplicate(ids: number[]): number | undefined {
+  const seen = new Set<number>();
+  for (const id of ids) {
+    if (seen.has(id)) return id;
+    seen.add(id);
+  }
+  return undefined;
+}
+
 function parseJson(text: string): { ok: true; value: unknown } | { ok: false; error: string } {
   try {
     return { ok: true, value: JSON.parse(text) };
@@ -121,12 +141,36 @@ export function parseSquadResult(text: string): ParseResult<SquadLlmResult> {
   if (!isIntegerArray(obj.picks) || obj.picks.length !== 15) {
     return { ok: false, error: '"picks" must be an array of exactly 15 integers' };
   }
+  const duplicatePick = findDuplicate(obj.picks);
+  if (duplicatePick !== undefined) {
+    return {
+      ok: false,
+      error: `"picks" must be 15 distinct ids; ${duplicatePick} appears more than once`,
+    };
+  }
   if (typeof obj.reason !== 'string') {
     return { ok: false, error: '"reason" must be a string' };
   }
   return { ok: true, value: { picks: obj.picks, reason: obj.reason } };
 }
 
+/**
+ * Parses one `LINEUP_SCHEMA` answer.
+ *
+ * Deliberately does NOT reject an empty `reason`. The real capture in
+ * test/fixtures/workers-ai/json-schema-lineup.json returned `reason: ""`
+ * alongside its malformed `starters` (issue #26) - `reason` is audit-only,
+ * recorded to `ai_calls` for a human to read later, and never feeds into
+ * `picks`/`captain`/`vice_captain` or any validation/gate decision. Rejecting
+ * it here would spend a retry (`decideLineup`'s `MAX_RETRIES = 2`, see
+ * src/ai/decide.ts) - and therefore a real Neuron cost, ~20.6 Neurons for
+ * this exact lineup call per the fixture's `_captured.neurons` - on a
+ * cosmetic field, and a model that returns `""` once has no particular
+ * reason not to do it again, which would burn the retry budget on the
+ * reason alone before ever getting to a shape problem worth retrying for.
+ * The honest trade this makes: an empty `reason` surfaces downstream as an
+ * unexplained decision in `ai_calls`, not as a parse failure here.
+ */
 export function parseLineupResult(text: string): ParseResult<LineupLlmResult> {
   const parsed = parseJson(text);
   if (!parsed.ok) return parsed;
@@ -140,6 +184,28 @@ export function parseLineupResult(text: string): ParseResult<LineupLlmResult> {
   }
   if (!isIntegerArray(obj.bench) || obj.bench.length !== 4) {
     return { ok: false, error: '"bench" must be an array of exactly 4 integers' };
+  }
+  const duplicateStarter = findDuplicate(obj.starters);
+  if (duplicateStarter !== undefined) {
+    return {
+      ok: false,
+      error: `"starters" must be 11 distinct ids; ${duplicateStarter} appears more than once`,
+    };
+  }
+  const duplicateBenchId = findDuplicate(obj.bench);
+  if (duplicateBenchId !== undefined) {
+    return {
+      ok: false,
+      error: `"bench" must be 4 distinct ids; ${duplicateBenchId} appears more than once`,
+    };
+  }
+  const benchIds = new Set(obj.bench);
+  const starterAlsoOnBench = obj.starters.find((id) => benchIds.has(id));
+  if (starterAlsoOnBench !== undefined) {
+    return {
+      ok: false,
+      error: `element ${starterAlsoOnBench} appears in both "starters" and "bench"`,
+    };
   }
   if (typeof obj.captain !== 'number' || !Number.isInteger(obj.captain)) {
     return { ok: false, error: '"captain" must be an integer' };
