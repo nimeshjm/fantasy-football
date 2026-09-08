@@ -164,11 +164,19 @@ export const legalityGrader: Grader = {
       scores[0]!.caveat = `attempt 0 produced no text (outcome: ${attempt0?.outcome ?? 'none'}); not evidence of an illegal answer.`;
     }
 
-    // Scoped to exactly `source === 'llm-repaired'`: repairSquad runs inside
-    // decideSquad, so which repair strategy fired and how many iterations it
-    // took is not observable from out here, and re-validating rawResponse
-    // only shows the pre-repair state - not a repair histogram.
-    scores.push({ name: 'repair_rate', value: o.source === 'llm-repaired' ? 1 : 0, unit: 'ratio' });
+    // Provenance of the *shipped* decision, not "how often the model's answer
+    // needed repair" - `source` becomes 'deterministic-gate' when gateDecision
+    // overrides, so this is gate-coupled and reads 0 on a repaired answer the
+    // gate then rejected. Squad legal@1 has been 0.000 across three live runs
+    // (every raw answer needed repair) while this read 0.333. `legal@1` is the
+    // metric for whether the raw answer was legal. Which repair strategy fired
+    // and how many iterations it took stays unobservable either way:
+    // repairSquad runs inside decideSquad.
+    scores.push({
+      name: 'shipped_repaired_rate',
+      value: o.source === 'llm-repaired' ? 1 : 0,
+      unit: 'ratio',
+    });
 
     const violationCounts = new Map<string, number>();
     for (const e of judgement.errors) {

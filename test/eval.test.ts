@@ -36,7 +36,11 @@ const MODEL = process.env.LLM_MODEL ?? '@cf/meta/llama-3.3-70b-instruct-fp8-fast
 /** The honest headroom: the free plan allows 10,000 Neurons/day and the
  * production agent reserves 8,000 of them via NEURON_DAILY_CAP, tracking its
  * own spend in D1 where this run is invisible to it. */
-const DEFAULT_MAX_NEURONS = 2000;
+// A full 13-case run charges ~2074. At 2000 the last case (transfer-gw4)
+// was skipped for budget in two consecutive live runs, and a live skip fails
+// silently: it leaves the previous cassette in place, so the replay lane
+// still passes.
+const DEFAULT_MAX_NEURONS = 2600;
 
 const tasks = fantasyTasks();
 
