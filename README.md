@@ -61,6 +61,25 @@ Two rules that are easy to get wrong and are guarded by tests:
   2 points, not `floor(6/2) = 3`. Scoring is therefore per-fixture and summed, never applied to a
   gameweek total. This only bites on a rescheduled double gameweek, and it bites silently.
 
+## Evaluating the model
+
+`eval/` is a small benchmark for the three LLM decisions, so a prompt change,
+a `max_tokens` change or a model swap can be scored before it ships. Five axes
+are reported separately and never collapsed into one number: schema
+conformance, rules legality, regret against the deterministic optimizer (next
+to a differentiation stat, because zero regret at zero differentiation means
+the model added nothing), realized points, and cost in Neurons.
+
+`npm run test` runs it offline. A live run spends real Neurons on the same
+free-tier account this agent draws from, so it is opt-in and capped:
+
+```bash
+EVAL_LIVE=1 npm run eval      # needs CLOUDFLARE_API_TOKEN + CLOUDFLARE_ACCOUNT_ID
+```
+
+See `eval/README.md` for the lanes, the measured costs, and the limits of what
+three gameweeks of fixtures can honestly show.
+
 ## Safety
 
 Writes to the live account are irreversible and cost points, so:
