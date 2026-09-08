@@ -142,6 +142,11 @@ export interface EvalTask<I extends CaseInput = CaseInput> {
   /** The prompt this case will send, built without calling a model. Drives the
    * prompt-snapshot lane. */
   prompt(c: EvalCase<I>): { system: string; user: string };
+  /** Most Neurons this case can cost: the per-attempt pre-call estimate
+   * `decide.ts` charges on failure, times the retry ceiling. The runner refuses
+   * to start a trial it cannot afford, so a budget stop is recorded as a skip
+   * rather than as a `deterministic-fallback` that looks like a model failure. */
+  worstCaseNeurons(c: EvalCase<I>): number;
   run(c: EvalCase<I>, ai: AiLike, ctx: RunContext): Promise<TaskOutcome>;
 }
 
@@ -184,9 +189,17 @@ export interface TrialRecord {
   respondingModel?: string;
   source: DecisionSource;
   attemptCount: number;
-  schemaValid?: boolean;
-  validationOutcome?: string;
+  /** The provider returned parseable text. NOT "the answer was schema-valid":
+   * `LlmAuditSink.record` fires before `parse*Result` and `validate*` run, and
+   * neither reports back through it, so this can be true on a trial that ended
+   * in `deterministic-fallback`. Production's `ai_calls.schema_valid` holds this
+   * same value under a name that overclaims it. Schema and legality verdicts
+   * come from the conformance and legality graders, which re-derive them from
+   * `AttemptRecord.rawResponse`. */
+  providerOk?: boolean;
+  providerReason?: string;
   repaired: boolean;
+  overrideReason?: string;
   gateVerdict?: 'accept' | 'override';
   gateSource?: string;
   gateOverrideReason?: string;
