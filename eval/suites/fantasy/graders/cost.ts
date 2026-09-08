@@ -51,9 +51,10 @@ export const costGrader: Grader = {
         caveat:
           'The pre-call estimate reserves the full max_tokens while the metered figure bills ' +
           'actual completion tokens, so this runs above 1. How far above depends on how much ' +
-          'the prompt dominates: measured 3.7x on lineup (~650 prompt tokens per call) but ' +
-          'only 1.8x on squad, whose ~5.5k-token prompt is charged accurately either way. ' +
-          'Note this sums over attempts, so a 3-attempt squad decision reports ~16.6k tokens.',
+          'the prompt dominates: ~3.7x on lineup, whose prompt is short, but under 2x on ' +
+          'squad, whose far larger prompt is charged accurately either way. Every token ' +
+          'figure here sums over attempts, so a 3-attempt decision reports roughly three ' +
+          'prompts, not one.',
       },
       { name: 'charged_neurons', value: chargedNeurons(attempts), unit: 'neurons' },
       {

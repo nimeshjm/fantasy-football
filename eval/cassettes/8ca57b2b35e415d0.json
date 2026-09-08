@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:20:31.241Z",
+    "capturedAt": "2026-09-08T17:46:31.112Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [168, 487, 565, 389], \"captain\": 442, \"reason\": \"Maximising expected points\", \"starters\": [62, 64, 355, 200, 264, 436, 527, 405, 442, 458, 527], \"vice_captain\": 405}",
+          "content": "{\"bench\": [168, 487, 565, 389], \"captain\": 442, \"reason\": \"Maximising expected points\", \"starters\": [62, 64, 355, 200, 264, 527, 405, 436, 458, 442, 64], \"vice_captain\": 405}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888017,
+    "created": 1788889574,
     "ec_transfer_params": null,
-    "id": "chatcmpl-240472d8-f68a-4bdf-9848-c7aa234fc3b7",
+    "id": "chatcmpl-b27af1a3-2123-4712-b02d-d855f28448ed",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -105,12 +105,12 @@
         355,
         200,
         264,
-        436,
         527,
         405,
-        442,
+        436,
         458,
-        527
+        442,
+        64
       ],
       "vice_captain": 405
     },

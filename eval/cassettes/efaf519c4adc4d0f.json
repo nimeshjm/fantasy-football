@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:30:33.448Z",
+    "capturedAt": "2026-09-08T17:46:31.111Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [148, 618, 640, 13], \"captain\": 405, \"reason\": \"Maximising expected points\", \"starters\": [7, 9, 77, 187, 242, 264, 436, 544, 539, 75, 405], \"vice_captain\": 544}",
+          "content": "{\"bench\": [148, 7, 13, 618], \"captain\": 405, \"reason\": \"Maximising expected points with uninjured starters\", \"starters\": [242, 187, 77, 544, 436, 75, 9, 539, 405, 264, 640], \"vice_captain\": 539}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888600,
+    "created": 1788889550,
     "ec_transfer_params": null,
-    "id": "chatcmpl-75d26c9f-5fc0-4bc6-9346-a15439f77ed0",
+    "id": "chatcmpl-ba5c4494-1a4a-4c86-a1b7-58c533d40687",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -93,37 +93,37 @@
     "response": {
       "bench": [
         148,
-        618,
-        640,
-        13
+        7,
+        13,
+        618
       ],
       "captain": 405,
-      "reason": "Maximising expected points",
+      "reason": "Maximising expected points with uninjured starters",
       "starters": [
-        7,
-        9,
-        77,
-        187,
         242,
-        264,
-        436,
+        187,
+        77,
         544,
-        539,
+        436,
         75,
-        405
+        9,
+        539,
+        405,
+        264,
+        640
       ],
-      "vice_captain": 544
+      "vice_captain": 539
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 649,
-      "completion_tokens": 79,
-      "total_tokens": 728,
+      "completion_tokens": 83,
+      "total_tokens": 732,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 33.4869384765625
+      "neurons": 34.30615997314453
     }
   }
 }

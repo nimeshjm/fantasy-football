@@ -1,5 +1,17 @@
 import { RULES, type Pick, type TransferMove } from '../../../../src/types';
-import type { CaseInput, EvalCase, Grader, Score, TaskOutcome } from '../../../core/types';
+import {
+  parseLineupResult,
+  parseSquadResult,
+  parseTransferResult,
+} from '../../../../src/ai/schemas';
+import type {
+  AttemptRecord,
+  CaseInput,
+  EvalCase,
+  Grader,
+  Score,
+  TaskOutcome,
+} from '../../../core/types';
 
 const REGRET_CAVEAT =
   "Regret measures agreement with this repo's own projection model, not football skill " +
@@ -38,7 +50,46 @@ function jaccardDistance(a: Set<number>, b: Set<number>): number {
   return 1 - intersection / union.size;
 }
 
+/**
+ * The model's own answer, re-parsed from `rawResponse` -- never
+ * `TaskOutcome.picks`. When `gateDecision` overrides, the shipped picks *are*
+ * the optimizer's, so a differentiation read off them collapses to 0 and the
+ * metric silently degenerates into `gate_accept_rate`. That is exactly what
+ * happened: three live runs reported differentiation 0.232 / 0.694 / 0.232
+ * against gate_accept_rate 0.333 / 1.000 / 0.333, and the apparent
+ * differentiation gain was only the gate accepting more often.
+ */
+function modelAnswerIds(
+  kind: EvalCase['input']['kind'],
+  attempts: AttemptRecord[],
+): Set<number> | undefined {
+  for (const a of [...attempts].reverse()) {
+    if (a.rawResponse === undefined) continue;
+    if (kind === 'squad') {
+      const parsed = parseSquadResult(a.rawResponse);
+      if (parsed.ok) return new Set(parsed.value.picks);
+    } else if (kind === 'lineup') {
+      const parsed = parseLineupResult(a.rawResponse);
+      if (parsed.ok) return new Set(parsed.value.starters);
+    } else {
+      const parsed = parseTransferResult(a.rawResponse);
+      if (parsed.ok) {
+        const { element_in, element_out } = parsed.value;
+        return element_in === 0 && element_out === 0
+          ? new Set<number>()
+          : new Set([element_in, element_out]);
+      }
+    }
+  }
+  return undefined;
+}
+
 function differentiation(c: EvalCase, o: TaskOutcome): number {
+  const model = modelAnswerIds(c.input.kind, o.attempts);
+  // No attempt parsed, so there is no model answer to be different from the
+  // reference -- 0 would read as "identical to the optimizer".
+  if (model === undefined) return NaN;
+
   if (c.input.kind === 'transfer') {
     const reference = transferElementIds(o.reference.transfers);
     // The transfer reference is `fallbackMove`, which is empty ("make no
@@ -47,12 +98,12 @@ function differentiation(c: EvalCase, o: TaskOutcome): number {
     // duly reported a flat 1.0 across every transfer case. NaN is the
     // honest answer until there is a non-trivial reference to compare to.
     if (reference.size === 0) return NaN;
-    return jaccardDistance(transferElementIds(o.transfers), reference);
+    return jaccardDistance(model, reference);
   }
   if (c.input.kind === 'lineup') {
-    return jaccardDistance(xiElementIds(o.picks), xiElementIds(o.reference.picks));
+    return jaccardDistance(model, xiElementIds(o.reference.picks));
   }
-  return jaccardDistance(allElementIds(o.picks), allElementIds(o.reference.picks));
+  return jaccardDistance(model, allElementIds(o.reference.picks));
 }
 
 export const regretGrader: Grader<CaseInput> = {

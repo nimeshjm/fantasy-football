@@ -1,0 +1,92 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-08T17:46:31.114Z",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You may make AT MOST ONE transfer this gameweek for a Fantasy Liga Portugal (Betclic) team, chosen only from the numbered candidate list below - every candidate is already legal and budget-checked, so you do not need to check budget or squad rules yourself. Each candidate's \"gain\" is the deterministic model's projected point gain over the planning horizon if made. A player's \"news\" field is a Portuguese injury/suspension note the deterministic gain does not fully capture - weigh it when a candidate's outgoing or incoming player is flagged. Pick the single best candidate, or elect not to transfer if none clearly helps. Respond using the JSON schema only: to make a transfer, echo that candidate's element_in and element_out ids exactly as given; to make no transfer, respond element_in=0 and element_out=0. Always include one short reason."
+      },
+      {
+        "role": "user",
+        "content": "Bank: EUR3.6m.\nCurrent squad (15 players):\nid|name|pos|club|cost|xpts|form|mins|news?\n62|Léo Santos|DEF|CDN|4.6|4.4|6.0|360\n64|Zé Vítor|DEF|CDN|5.1|3.8|5.8|360\n80|Marin|GK|CDN|4.5|3.7|5.0|360\n187|Fontán|DEF|FCA|5.2|4.1|7.0|360\n200|Naïs Djouahra|MID|FCA|6.2|4.1|5.8|356\n264|Gabri Veiga|MID|FCP|8.3|4.9|9.5|308\n275|André Silva|FWD|FCP|10.0|4.2|5.0|262\n278|Elimbi|DEF|GVFC|5.0|2.9|6.3|270\n296|Joelson Fernandes|MID|GVFC|5.5|3.0|3.3|212\n355|Ennio van der Gouw|GK|RAFC|5.0|3.9|4.2|360\n389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354\n405|Gonçalo Paciência|FWD|CDSC|5.8|6.0|7.2|295\n539|Ioannidis|FWD|SCP|9.5|3.7|5.2|159\n541|Flávio Gonçalves|MID|SCP|6.7|3.4|6.5|256\n544|Zalazar|MID|SCP|10.5|4.0|5.5|347\n\nCandidate transfers:\n1. element_in=436 element_out=541 gain:+10.5 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 541|Flávio Gonçalves|MID|SCP|6.7|3.4|6.5|256\n2. element_in=436 element_out=544 gain:+10.3 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 544|Zalazar|MID|SCP|10.5|4.0|5.5|347\n3. element_in=436 element_out=544 gain:+9.9 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 544|Zalazar|MID|SCP|10.5|4.0|5.5|347\n4. element_in=442 element_out=539 gain:+6.9 | IN 442|Pavlidis|FWD|SLB|12.1|10.7|11.0|227 | OUT 539|Ioannidis|FWD|SCP|9.5|3.7|5.2|159\n5. element_in=442 element_out=275 gain:+6.5 | IN 442|Pavlidis|FWD|SLB|12.1|10.7|11.0|227 | OUT 275|André Silva|FWD|FCP|10.0|4.2|5.0|262\n6. element_in=436 element_out=296 gain:+4.0 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 296|Joelson Fernandes|MID|GVFC|5.5|3.0|3.3|212\n7. element_in=436 element_out=541 gain:+4.0 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 541|Flávio Gonçalves|MID|SCP|6.7|3.4|6.5|256\n8. element_in=436 element_out=544 gain:+3.3 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 544|Zalazar|MID|SCP|10.5|4.0|5.5|347\n9. element_in=436 element_out=200 gain:+3.3 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 200|Naïs Djouahra|MID|FCA|6.2|4.1|5.8|356\n10. element_in=436 element_out=264 gain:+2.5 | IN 436|Prestianni|MID|SLB|8.2|7.4|8.7|250 | OUT 264|Gabri Veiga|MID|FCP|8.3|4.9|9.5|308\n11. element_in=458 element_out=541 gain:+2.0 | IN 458|Rafa Silva|MID|SLB|10.0|5.4|5.0|195 | OUT 541|Flávio Gonçalves|MID|SCP|6.7|3.4|6.5|256\n12. element_in=458 element_out=544 gain:+1.4 | IN 458|Rafa Silva|MID|SLB|10.0|5.4|5.0|195 | OUT 544|Zalazar|MID|SCP|10.5|4.0|5.5|347\n13. element_in=431 element_out=278 gain:+0.9 | IN 431|Dahl|DEF|SLB|6.0|4.2|5.7|270 | OUT 278|Elimbi|DEF|GVFC|5.0|2.9|6.3|270"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "type": "object",
+        "properties": {
+          "element_in": {
+            "type": "integer",
+            "description": "Id of the player to buy, matching a candidate. 0 means no transfer."
+          },
+          "element_out": {
+            "type": "integer",
+            "description": "Id of the player to sell, matching the same candidate. 0 means no transfer."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "element_in",
+          "element_out",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "max_tokens": 150
+  },
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "{\"element_in\": 436, \"element_out\": 541, \"reason\": \"Highest gain\"}",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788889590,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-6eb78f24-dce6-4c23-99fa-bbcbc0ac0216",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-json",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": {
+      "element_in": 436,
+      "element_out": 541,
+      "reason": "Highest gain"
+    },
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 1568,
+      "completion_tokens": 22,
+      "total_tokens": 1590,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 46.32062530517578
+    }
+  }
+}

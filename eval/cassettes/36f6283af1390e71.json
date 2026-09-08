@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:30:33.450Z",
+    "capturedAt": "2026-09-08T17:46:31.114Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888629,
+    "created": 1788889588,
     "ec_transfer_params": null,
-    "id": "chatcmpl-0da6f3af-9c9d-4f78-91a8-3a43831c0f9d",
+    "id": "chatcmpl-a5f0ab50-0263-48b8-9220-2092467515f8",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",

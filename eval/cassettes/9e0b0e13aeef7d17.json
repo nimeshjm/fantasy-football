@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:20:31.240Z",
+    "capturedAt": "2026-09-08T17:46:31.111Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [618, 640, 13, 7], \"captain\": 405, \"reason\": \"Maximising expected points with a valid formation\", \"starters\": [148, 187, 77, 544, 436, 75, 242, 9, 539, 405, 264], \"vice_captain\": 544}",
+          "content": "{\"bench\": [618, 640, 13, 7], \"captain\": 405, \"reason\": \"Maximising expected points\", \"starters\": [148, 187, 77, 9, 436, 544, 242, 539, 264, 75, 5], \"vice_captain\": 544}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888004,
+    "created": 1788889559,
     "ec_transfer_params": null,
-    "id": "chatcmpl-44681816-6c22-4bd8-b61d-6cdebad5d832",
+    "id": "chatcmpl-1f586011-c78b-4276-b46e-9a3f3a3f08fa",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -98,19 +98,19 @@
         7
       ],
       "captain": 405,
-      "reason": "Maximising expected points with a valid formation",
+      "reason": "Maximising expected points",
       "starters": [
         148,
         187,
         77,
-        544,
-        436,
-        75,
-        242,
         9,
+        436,
+        544,
+        242,
         539,
-        405,
-        264
+        264,
+        75,
+        5
       ],
       "vice_captain": 544
     },
@@ -118,12 +118,12 @@
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 677,
-      "completion_tokens": 83,
-      "total_tokens": 760,
+      "completion_tokens": 79,
+      "total_tokens": 756,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 35.0528564453125
+      "neurons": 34.23363494873047
     }
   }
 }

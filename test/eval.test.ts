@@ -183,7 +183,18 @@ describe.skipIf(cassetteKeys.length === 0)('eval replay lane', () => {
     recorder.flush();
     writeReport(path.join(RUNS_DIR, 'replay'), summary);
     console.log(formatConsoleTable(summary));
-    expect(result.trials.length).toBeGreaterThan(0);
+    expect(result.trials.length).toBe(caseCount());
+
+    // A cassette miss surfaces as a provider error, not a thrown test:
+    // decide.ts catches every provider throw and retries. So without these
+    // two assertions the lane passes green on missing recordings and quietly
+    // grades the degraded answer -- deleting a cassette used to leave it
+    // passing.
+    expect(result.skipped).toEqual([]);
+    const providerErrors = result.trials.filter((t) =>
+      t.scores.some((s) => s.name === 'provider_error_rate' && s.value > 0),
+    );
+    expect(providerErrors.map((t) => t.caseId)).toEqual([]);
   });
 });
 

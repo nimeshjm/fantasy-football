@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:30:33.445Z",
+    "capturedAt": "2026-09-08T17:46:31.110Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"picks\": [80, 383, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 405, 442], \"reason\": \"Maximizing expected points within the given budget and constraints.\"}",
+          "content": "{\"picks\": [80, 383, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 131, 405], \"reason\": \"Maximizing expected points within the given budget and constraints.\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888591,
+    "created": 1788889540,
     "ec_transfer_params": null,
-    "id": "chatcmpl-b6ecb0a0-51cd-4cf4-a358-69f9a0eeae10",
+    "id": "chatcmpl-e7dd1d31-be69-4041-972d-e4c71198d24e",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -87,8 +87,8 @@
         291,
         527,
         592,
-        405,
-        442
+        131,
+        405
       ],
       "reason": "Maximizing expected points within the given budget and constraints."
     },
