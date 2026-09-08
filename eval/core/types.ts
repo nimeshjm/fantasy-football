@@ -1,5 +1,12 @@
 import type { LlmUsage } from '../../src/ai/provider';
-import type { DecisionKind, DecisionSource, Element, Pick, TransferMove } from '../../src/types';
+import type {
+  DecisionKind,
+  DecisionSource,
+  Element,
+  Pick,
+  Projection,
+  TransferMove,
+} from '../../src/types';
 import type { ShortlistEntry, TransferCandidateEntry } from '../../src/ai/prompts';
 
 /** The `Ai` surface `WorkersAiProvider` actually uses. Both eval modes implement
@@ -37,16 +44,26 @@ export function asAi(shim: AiLike): Ai {
 // Cases
 // ---------------------------------------------------------------------------
 
+/** `make*Baseline` in src/baseline.ts needs the gameweek's projections and the
+ * optimizer's own picks, so every case carries them. They are inputs to the
+ * grader, not to the model: nothing here reaches the prompt except via the
+ * `ShortlistEntry` lists, which is what keeps the leakage contract checkable. */
 export interface SquadCaseInput {
   kind: 'squad';
   shortlist: ShortlistEntry[];
   elements: Element[];
+  projections: Projection[];
+  /** `buildShortlist`'s own `deterministicSquad.picks` — never a second
+   * `buildSquad` run, which would be a different answer at the same cost. */
+  optimalPicks: Pick[];
 }
 
 export interface LineupCaseInput {
   kind: 'lineup';
   owned: ShortlistEntry[];
   elements: Element[];
+  projections: Projection[];
+  ownedPicks: Pick[];
 }
 
 export interface TransferCaseInput {
@@ -55,6 +72,11 @@ export interface TransferCaseInput {
   candidates: TransferCandidateEntry[];
   bankTenths: number;
   elements: Element[];
+  projections: Projection[];
+  ownedPicks: Pick[];
+  /** What `makeTransferBaseline` returns from `fallbackTransfer()`; empty
+   * means the deterministic answer is "make no transfer". */
+  fallbackMove: TransferMove[];
 }
 
 export type CaseInput = SquadCaseInput | LineupCaseInput | TransferCaseInput;
@@ -142,11 +164,16 @@ export interface EvalTask<I extends CaseInput = CaseInput> {
   /** The prompt this case will send, built without calling a model. Drives the
    * prompt-snapshot lane. */
   prompt(c: EvalCase<I>): { system: string; user: string };
-  /** Most Neurons this case can cost: the per-attempt pre-call estimate
-   * `decide.ts` charges on failure, times the retry ceiling. The runner refuses
-   * to start a trial it cannot afford, so a budget stop is recorded as a skip
-   * rather than as a `deterministic-fallback` that looks like a model failure. */
+  /** Most Neurons this case can cost across every retry. Used for the
+   * pre-flight total a live run reports before spending anything — NOT for the
+   * per-trial gate, since it assumes all three attempts fail and would refuse
+   * trials that in practice cost ~4% of it. */
   worstCaseNeurons(c: EvalCase<I>): number;
+  /** Most the NEXT provider call can cost. This is the runner's gate, because
+   * `callLlm` re-checks `budget.remaining()` before every attempt and stops on
+   * its own — so refusing only what one call could overspend is both safe and
+   * usable, where gating on the full retry ceiling is not. */
+  attemptCeilingNeurons(c: EvalCase<I>): number;
   run(c: EvalCase<I>, ai: AiLike, ctx: RunContext): Promise<TaskOutcome>;
 }
 

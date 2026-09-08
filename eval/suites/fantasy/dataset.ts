@@ -111,6 +111,8 @@ function build(): Built {
           state,
         ),
         elements: state.elements,
+        projections: state.projections,
+        optimalPicks: deterministicSquad.picks,
       },
       truth,
     });
@@ -123,6 +125,8 @@ function build(): Built {
         kind: 'lineup',
         owned: toShortlistEntries(picksToIds(deterministicSquad.picks), state),
         elements: state.elements,
+        projections: state.projections,
+        ownedPicks: deterministicSquad.picks,
       },
       truth,
     });
@@ -189,6 +193,12 @@ function build(): Built {
         candidates: candidateEntries,
         bankTenths: bank,
         elements: state.elements,
+        projections: state.projections,
+        ownedPicks,
+        // Empty: the deterministic fallback for a transfer decision is "do
+        // nothing", which is always legal. makeTransferBaseline only ever has
+        // fallbackTransfer() called on it by decideTransfer.
+        fallbackMove: [],
       },
       truth,
     });
