@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.110Z",
+    "capturedAt": "2026-09-08T18:17:02.864Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"picks\": [80, 355, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 405, 442], \"reason\": \"Optimized for xpts within budget and constraints\"}",
+          "content": "{\"picks\": [80, 383, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 405, 442], \"reason\": \"Optimized for xpts within budget and constraints\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889547,
+    "created": 1788891417,
     "ec_transfer_params": null,
-    "id": "chatcmpl-229b253c-78b1-44b9-b545-c88fb4530b8c",
+    "id": "chatcmpl-00b53ae7-b3e6-45e6-a789-4f130c8fb558",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -75,7 +75,7 @@
     "response": {
       "picks": [
         80,
-        355,
+        383,
         62,
         238,
         389,

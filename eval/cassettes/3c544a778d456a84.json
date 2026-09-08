@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.110Z",
+    "capturedAt": "2026-09-08T18:17:02.863Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"picks\": [80, 383, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 131, 405], \"reason\": \"Maximizing expected points within the given budget and constraints.\"}",
+          "content": "{\"picks\": [80, 355, 62, 238, 389, 393, 430, 565, 73, 77, 291, 527, 592, 405, 442], \"reason\": \"Maximizing xpts within budget and constraints\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889540,
+    "created": 1788891412,
     "ec_transfer_params": null,
-    "id": "chatcmpl-e7dd1d31-be69-4041-972d-e4c71198d24e",
+    "id": "chatcmpl-20ef9cda-6b77-497a-88d9-0415edf7bce3",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -75,7 +75,7 @@
     "response": {
       "picks": [
         80,
-        383,
+        355,
         62,
         238,
         389,
@@ -87,21 +87,21 @@
         291,
         527,
         592,
-        131,
-        405
+        405,
+        442
       ],
-      "reason": "Maximizing expected points within the given budget and constraints."
+      "reason": "Maximizing xpts within budget and constraints"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 5630,
-      "completion_tokens": 67,
-      "total_tokens": 5697,
+      "completion_tokens": 64,
+      "total_tokens": 5694,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 163.86093139648438
+      "neurons": 163.24652099609375
     }
   }
 }

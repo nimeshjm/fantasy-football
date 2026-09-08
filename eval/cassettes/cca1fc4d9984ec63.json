@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.107Z",
+    "capturedAt": "2026-09-08T18:17:02.861Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"picks\": [80, 168, 7, 13, 151, 630, 389, 238, 77, 264, 323, 380, 436, 131, 405], \"reason\": \"Optimized for expected points within budget and constraints.\"}",
+          "content": "{\"picks\": [27, 80, 7, 13, 151, 389, 630, 187, 264, 436, 380, 323, 655, 131, 405], \"reason\": \"Optimal squad within budget and constraints\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889521,
+    "created": 1788891396,
     "ec_transfer_params": null,
-    "id": "chatcmpl-f78166d4-92bf-4ee0-8cca-bfca4923c7cf",
+    "id": "chatcmpl-12cef88d-42ff-4469-b2fc-4bcc7eb8af77",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -74,34 +74,34 @@
     "prompt_token_ids": null,
     "response": {
       "picks": [
+        27,
         80,
-        168,
         7,
         13,
         151,
-        630,
         389,
-        238,
-        77,
+        630,
+        187,
         264,
-        323,
-        380,
         436,
+        380,
+        323,
+        655,
         131,
         405
       ],
-      "reason": "Optimized for expected points within budget and constraints."
+      "reason": "Optimal squad within budget and constraints"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 5793,
-      "completion_tokens": 65,
-      "total_tokens": 5858,
+      "completion_tokens": 62,
+      "total_tokens": 5855,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 167.79815673828125
+      "neurons": 167.18374633789062
     }
   }
 }
