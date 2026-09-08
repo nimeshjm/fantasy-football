@@ -28,7 +28,12 @@ import {
   type TransferMove,
   type DecisionKind,
 } from '../types';
-import { CONTEXT_WINDOW_TOKENS, estimateNeurons, type LlmProvider } from './provider';
+import {
+  CONTEXT_WINDOW_TOKENS,
+  estimateNeurons,
+  type LlmProvider,
+  type LlmUsage,
+} from './provider';
 import {
   assertPromptFits,
   buildLineupPrompt,
@@ -80,6 +85,34 @@ export interface LlmAuditSink {
     estNeuronsIn: number;
     estNeuronsOut: number;
     rawResponse?: string;
+    /**
+     * The metered figures Workers AI actually charged (issue #27), carried
+     * alongside `estNeuronsIn`/`estNeuronsOut` rather than replacing them --
+     * holding the estimate next to the actual is what makes future
+     * recalibration of `estimateTokens` possible at all. Present only when
+     * `LlmProvider.complete()` returned a `usage` block: absent on every
+     * failed call (a refusal or truncation still runs the model, so it is
+     * charged the pre-call estimate instead -- see `callLlm` below) and on
+     * `skipped-prompt-too-large`/`skipped-budget`, which never call the
+     * provider at all.
+     *
+     * A truncated call (`finish_reason: 'length'`) DOES have real
+     * `envelope.usage` sitting right there in the envelope -- this is a
+     * deliberate choice not to extract it, not a gap. `LlmCompleteResult`'s
+     * failure branch has no `usage` field by design (see provider.ts): the
+     * task this issue set is "charge the estimate on any failed call, since
+     * the Neurons were spent either way", and a partially-truncated answer
+     * is still a failed one. Wiring `usage` onto the failure branch would
+     * silently change what gets charged on the one failure mode where a
+     * metered figure happens to be available, inconsistent with every other
+     * failure mode where it isn't.
+     */
+    meteredPromptTokens?: number;
+    meteredCompletionTokens?: number;
+    meteredNeurons?: number;
+    /** `usage.prompt_tokens_details.cached_tokens` -- 0 in all five recorded
+     * captures. See `LlmUsage.cachedTokens` in provider.ts. */
+    cachedTokens?: number;
   }): void | Promise<void>;
 
   /**
@@ -208,6 +241,7 @@ async function callLlm(
     outcome: 'ok' | 'skipped-prompt-too-large' | 'skipped-budget' | 'provider-error',
     reason?: string,
     rawResponse?: string,
+    usage?: LlmUsage,
   ): Promise<void> => {
     if (!audit) return;
     try {
@@ -219,6 +253,10 @@ async function callLlm(
         estNeuronsIn: estimateNeurons(inputTokens, 0),
         estNeuronsOut: estimateNeurons(0, maxTokens),
         rawResponse,
+        meteredPromptTokens: usage?.promptTokens,
+        meteredCompletionTokens: usage?.completionTokens,
+        meteredNeurons: usage?.neurons,
+        cachedTokens: usage?.cachedTokens,
       });
     } catch {
       /* observability must never take down the decision path */
@@ -250,17 +288,32 @@ async function callLlm(
     maxTokens,
   });
 
-  // Workers AI does not report per-call token usage in its response, so the
-  // requested max_tokens is the best available spend estimate. Recorded
-  // whether or not the call succeeded, since the Neurons were spent either
-  // way (a refusal still runs the model).
-  await budget.record(neuronsNeeded);
+  // Workers AI DOES report per-call token usage - `envelope.usage`, carrying
+  // `prompt_tokens`/`completion_tokens`/`neurons` - the prior claim here was
+  // false and was the load-bearing justification for a real overcharge
+  // (issue #27). Five real captures in test/fixtures/workers-ai/ show
+  // `estimateNeurons(prompt_tokens, completion_tokens)` reproduces
+  // `usage.neurons` to the digit, while the pre-call reservation this
+  // function charged before trueing up ran 4-6x over the metered figure
+  // (squad: 86.0 recorded vs 21.4 metered; lineup: 84.6 vs 20.6; transfer:
+  // 63.5 vs 10.9) because it assumed every answer fills the whole
+  // `max_tokens` requested (real completions were 60/73/34 tokens against
+  // 400/400/300 requested).
+  //
+  // The pre-call check above still MUST stay pessimistic - `neuronsNeeded`
+  // is the only figure available before the call runs, and the real cost is
+  // unknowable until it answers - but once it has answered, the metered
+  // figure is strictly better information and is what gets charged against
+  // the daily cap. A failed call (refusal, truncation, provider error) still
+  // ran the model with no metered `usage` to true up against, so it keeps
+  // charging the pessimistic estimate - the Neurons were spent either way.
+  await budget.record(result.ok && result.usage ? result.usage.neurons : neuronsNeeded);
 
   if (!result.ok) {
-    await note('provider-error', result.error);
+    await note('provider-error', result.error, result.rawResponse);
     return { ok: false, reason: result.error };
   }
-  await note('ok', undefined, result.text);
+  await note('ok', undefined, result.text, result.usage);
   return { ok: true, text: result.text };
 }
 

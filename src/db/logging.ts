@@ -47,6 +47,14 @@ export interface AiCallRow {
   deterministicScore: number | null;
   estNeuronsIn: number;
   estNeuronsOut: number;
+  /** Metered actuals from `envelope.usage` (issue #27) -- see the doc
+   * comment on `AiCallInput` in src/db/types.ts for why these sit alongside
+   * the estimate rather than replacing it. `null` on any failed call, and on
+   * rows logged before migrations/0004_ai_calls_metered_usage.sql. */
+  meteredPromptTokens: number | null;
+  meteredCompletionTokens: number | null;
+  meteredNeurons: number | null;
+  cachedTokens: number | null;
 }
 
 /** Logs one action (a committed decision, or an attempted one under
@@ -86,8 +94,9 @@ export async function logAiCall(db: D1Database, input: AiCallInput): Promise<num
       'INSERT INTO ai_calls ' +
         '(ts, decision_kind, model, prompt, raw_response, schema_valid, validation_outcome, repaired, ' +
         'gate_verdict, gate_source, gate_override_reason, llm_score, deterministic_score, ' +
-        'est_neurons_in, est_neurons_out) ' +
-        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+        'est_neurons_in, est_neurons_out, metered_prompt_tokens, metered_completion_tokens, ' +
+        'metered_neurons, cached_tokens) ' +
+        'VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
     )
     .bind(
       input.ts,
@@ -105,6 +114,10 @@ export async function logAiCall(db: D1Database, input: AiCallInput): Promise<num
       input.deterministicScore ?? null,
       input.estNeuronsIn,
       input.estNeuronsOut,
+      input.meteredPromptTokens ?? null,
+      input.meteredCompletionTokens ?? null,
+      input.meteredNeurons ?? null,
+      input.cachedTokens ?? null,
     )
     .run();
   return result.meta.last_row_id;
@@ -270,6 +283,10 @@ interface RawAiCallRow {
   deterministic_score: number | null;
   est_neurons_in: number;
   est_neurons_out: number;
+  metered_prompt_tokens: number | null;
+  metered_completion_tokens: number | null;
+  metered_neurons: number | null;
+  cached_tokens: number | null;
 }
 
 /**
@@ -282,7 +299,8 @@ export async function getRecentAiCalls(db: D1Database, limit = 20): Promise<AiCa
     .prepare(
       'SELECT id, ts, decision_kind, model, prompt, raw_response, schema_valid, validation_outcome, ' +
         'repaired, gate_verdict, gate_source, gate_override_reason, llm_score, deterministic_score, ' +
-        'est_neurons_in, est_neurons_out FROM ai_calls ORDER BY ts DESC LIMIT ?',
+        'est_neurons_in, est_neurons_out, metered_prompt_tokens, metered_completion_tokens, ' +
+        'metered_neurons, cached_tokens FROM ai_calls ORDER BY ts DESC LIMIT ?',
     )
     .bind(limit)
     .all<RawAiCallRow>();
@@ -303,5 +321,9 @@ export async function getRecentAiCalls(db: D1Database, limit = 20): Promise<AiCa
     deterministicScore: r.deterministic_score,
     estNeuronsIn: r.est_neurons_in,
     estNeuronsOut: r.est_neurons_out,
+    meteredPromptTokens: r.metered_prompt_tokens,
+    meteredCompletionTokens: r.metered_completion_tokens,
+    meteredNeurons: r.metered_neurons,
+    cachedTokens: r.cached_tokens,
   }));
 }

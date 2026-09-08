@@ -113,6 +113,33 @@ function gateScores(c: AiCallRow): string {
   return `llm ${llm} vs det ${det}`;
 }
 
+/** Neurons this row actually cost: the METERED figure
+ * (`envelope.usage.neurons`, from `metered_neurons`) when the call succeeded
+ * and Workers AI reported one, otherwise the pessimistic pre-call ESTIMATE
+ * (`est_neurons_in + est_neurons_out`) it was charged instead -- a failed
+ * call that actually ran (refusal, truncation, provider error) has no
+ * metered usage to true up against, so `decide.ts`'s `callLlm` keeps
+ * charging the estimate (issue #27). Labelled explicitly (`metered` / `est`)
+ * rather than left as a bare number, so a reader can never mistake one for
+ * the other -- before this fix every row showed the same estimate regardless
+ * of outcome, and that estimate ran 4-6x the real cost (squad: 86.0 recorded
+ * vs 21.4 metered).
+ *
+ * A `skipped-prompt-too-large`/`skipped-budget` row is a THIRD case, not a
+ * degenerate "est": `callLlm` returns before ever calling the provider or
+ * `budget.record`, so `est_neurons_in`/`est_neurons_out` there is the
+ * reservation that was REFUSED, and nothing was actually spent. Rendering
+ * that as `86.0 est` would misread as "this call cost ~86 Neurons" for a
+ * call that cost zero -- detected via `validationOutcome`'s `skipped-*`
+ * prefix (see `makeAuditSink` in decideCommit.ts), which is written for
+ * exactly this pair of outcomes. */
+function neuronsCell(c: AiCallRow): string {
+  if (c.meteredNeurons !== null) return `${c.meteredNeurons.toFixed(1)} metered`;
+  const est = (c.estNeuronsIn + c.estNeuronsOut).toFixed(1);
+  if (c.validationOutcome?.startsWith('skipped-')) return `${est} reserved, not spent`;
+  return `${est} est`;
+}
+
 function aiCallRow(c: AiCallRow): string {
   const verdict =
     c.gateVerdict === 'override'
@@ -129,7 +156,7 @@ function aiCallRow(c: AiCallRow): string {
     `<td>${c.repaired ? 'yes' : 'no'}</td>` +
     `<td>${c.gateVerdict === null ? '&mdash;' : verdict}</td>` +
     `<td>${escapeHtml(gateScores(c))}</td>` +
-    `<td>${escapeHtml(c.estNeuronsIn + c.estNeuronsOut)}</td>` +
+    `<td>${escapeHtml(neuronsCell(c))}</td>` +
     `<td><pre>${escapeHtml(detail)}</pre></td></tr>`
   );
 }

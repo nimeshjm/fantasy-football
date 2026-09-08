@@ -59,7 +59,29 @@ export interface LlmCompleteRequest {
   maxTokens: number;
 }
 
-export type LlmCompleteResult = { ok: true; text: string } | { ok: false; error: string };
+/**
+ * The metered token/Neuron figures Workers AI actually charged for a call,
+ * lifted from `envelope.usage` (issue #27). Every one of the five recorded
+ * fixtures in test/fixtures/workers-ai/ carries this block, and
+ * `estimateNeurons(usage.promptTokens, usage.completionTokens)` reproduces
+ * `usage.neurons` to the digit on all five - the pricing constants above
+ * were never wrong, only what decide.ts fed them was (the pre-call estimate,
+ * charged as if every call spent the full `max_tokens` reservation).
+ */
+export interface LlmUsage {
+  promptTokens: number;
+  completionTokens: number;
+  neurons: number;
+  /** `usage.prompt_tokens_details.cached_tokens` - 0 in all five captures.
+   * Recorded because it costs one more nullable column on a migration this
+   * issue already adds; nothing downstream reads it yet, so it stays
+   * separately optional rather than gating `LlmUsage` itself on its
+   * presence. */
+  cachedTokens?: number;
+}
+
+export type LlmCompleteResult =
+  { ok: true; text: string; usage?: LlmUsage } | { ok: false; error: string; rawResponse?: string };
 
 /** One provider, one method. decide.ts depends only on this - never on a
  * concrete provider class - so a future provider is a drop-in. */
@@ -124,7 +146,11 @@ export class WorkersAiProvider implements LlmProvider {
       const refusal = message?.refusal;
       if (refusal !== null && refusal !== undefined) {
         const detail = typeof refusal === 'string' ? refusal : safeStringify(refusal);
-        return { ok: false, error: `workers-ai refused the request: ${capLength(detail, 300)}` };
+        return {
+          ok: false,
+          error: `workers-ai refused the request: ${capLength(detail, 300)}`,
+          rawResponse: rawMessageContent(result),
+        };
       }
 
       const finishReason = firstChoice(result)?.finish_reason;
@@ -133,6 +159,16 @@ export class WorkersAiProvider implements LlmProvider {
           ok: false,
           error:
             'workers-ai truncated the response at max_tokens (finish_reason: "length") - answer likely cut off mid-JSON',
+          // The partial body is exactly what a truncation investigation
+          // needs and, before this, is exactly what vanished from the audit
+          // trail: `ai_calls.raw_response` was only ever written on the `ok`
+          // branch, so a truncated call - now correctly a *failed* one per
+          // issue #28 - left no trace of what the model actually produced
+          // (issue #27, task 6). `message.content` is the raw, unparsed
+          // string Workers AI sent back regardless of whether it happens to
+          // be valid JSON, which is the right thing to keep here (the
+          // `response` field's parse-or-fail convenience is not).
+          rawResponse: rawMessageContent(result),
         };
       }
 
@@ -140,7 +176,7 @@ export class WorkersAiProvider implements LlmProvider {
       if (text === null) {
         return { ok: false, error: 'workers-ai returned no parsable response text' };
       }
-      return { ok: true, text };
+      return { ok: true, text, usage: extractUsage(result) };
     } catch (err) {
       // JSON mode can refuse a complex schema outright ("JSON Mode couldn't
       // be met"), or the binding can throw for other reasons (rate limit,
@@ -253,6 +289,63 @@ function firstChoice(result: unknown): Record<string, unknown> | null {
 function firstChoiceMessage(result: unknown): Record<string, unknown> | null {
   const message = firstChoice(result)?.message;
   return message && typeof message === 'object' ? (message as Record<string, unknown>) : null;
+}
+
+/** Raw `choices[0].message.content` string, for the failure branches that
+ * want to keep the model's actual output alongside the `error` -- a refusal
+ * or a truncation is a genuine answer about the request, not proof there was
+ * nothing worth logging. Deliberately NOT `extractResponseText`: that
+ * function also tries the parsed `response` field and can return `null` for
+ * inputs this one still has real content for (e.g. a truncated, not-quite-
+ * valid-JSON body). `undefined` (not `null`) so callers can spread it into
+ * an object literal and have it vanish rather than serialise as a null. */
+function rawMessageContent(result: unknown): string | undefined {
+  const content = firstChoiceMessage(result)?.content;
+  return typeof content === 'string' && content.length > 0 ? content : undefined;
+}
+
+/**
+ * Extracts the metered `usage` block from a Workers AI envelope, per the
+ * three real fields `estimateNeurons` needs (see `LlmUsage`). `usage` is
+ * otherwise-untrusted shape from an external service, same as `choices`
+ * above, so this is defensive the same way: if `prompt_tokens`,
+ * `completion_tokens`, or `neurons` is missing or not a finite number, the
+ * WHOLE block is omitted rather than shipping a partial/guessed figure that
+ * would silently corrupt `estimateNeurons`'s arithmetic downstream. All five
+ * captures in test/fixtures/workers-ai/ carry a complete, well-typed
+ * `usage`, so this should never actually fire in production -- it exists so
+ * a future envelope shape change degrades to "no metered figure" (falls back
+ * to the pre-call estimate, per decide.ts) rather than to a wrong one.
+ * `prompt_tokens_details.cached_tokens` is read separately and does not gate
+ * this -- see `LlmUsage.cachedTokens`.
+ */
+function extractUsage(result: unknown): LlmUsage | undefined {
+  if (!result || typeof result !== 'object') return undefined;
+  const usage = (result as Record<string, unknown>).usage;
+  if (!usage || typeof usage !== 'object') return undefined;
+  const u = usage as Record<string, unknown>;
+  const promptTokens = u.prompt_tokens;
+  const completionTokens = u.completion_tokens;
+  const neurons = u.neurons;
+  if (
+    typeof promptTokens !== 'number' ||
+    !Number.isFinite(promptTokens) ||
+    typeof completionTokens !== 'number' ||
+    !Number.isFinite(completionTokens) ||
+    typeof neurons !== 'number' ||
+    !Number.isFinite(neurons)
+  ) {
+    return undefined;
+  }
+  const usageOut: LlmUsage = { promptTokens, completionTokens, neurons };
+  const details = u.prompt_tokens_details;
+  if (details && typeof details === 'object') {
+    const cachedTokens = (details as Record<string, unknown>).cached_tokens;
+    if (typeof cachedTokens === 'number' && Number.isFinite(cachedTokens)) {
+      usageOut.cachedTokens = cachedTokens;
+    }
+  }
+  return usageOut;
 }
 
 /** Caps a string at `max` characters for embedding in an `error` string, so

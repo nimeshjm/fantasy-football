@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { extractResponseTextForTest, WorkersAiProvider } from '../src/ai/provider';
+import { estimateNeurons, extractResponseTextForTest, WorkersAiProvider } from '../src/ai/provider';
 import { LINEUP_SCHEMA, SQUAD_SCHEMA, TRANSFER_SCHEMA } from '../src/ai/schemas';
 import { StubAi } from './stubs/workersAi';
 
@@ -364,6 +364,13 @@ describe('WorkersAiProvider.complete() surfaces refusal and truncation distinctl
     expect(result).toEqual({
       ok: false,
       error: "workers-ai refused the request: JSON Mode couldn't be met",
+      // A refusal is a real answer about the request, not proof there was
+      // nothing worth logging - the fixture's message.content is carried
+      // through so it still reaches ai_calls.raw_response (issue #27, task
+      // 6: before this, a failed call's raw_response was written only via
+      // decide.ts's `reason` fallback, which is the error string, never the
+      // model's own text).
+      rawResponse: messageOf(envelope).content,
     });
   });
 
@@ -383,7 +390,11 @@ describe('WorkersAiProvider.complete() surfaces refusal and truncation distinctl
       maxTokens: 400,
     });
 
-    expect(result).toEqual({ ok: false, error: 'workers-ai refused the request: declined' });
+    expect(result).toEqual({
+      ok: false,
+      error: 'workers-ai refused the request: declined',
+      rawResponse: messageOf(envelope).content,
+    });
   });
 
   it('finish_reason "length" produces its own error string, even when text would have extracted', async () => {
@@ -408,6 +419,10 @@ describe('WorkersAiProvider.complete() surfaces refusal and truncation distinctl
     expect(result.error).toMatch(/truncat/i);
     expect(result.error).toContain('length');
     expect(result.error).not.toBe('workers-ai returned no parsable response text');
+    // Issue #27, task 6: the partial body must not vanish from the audit
+    // trail just because a truncated answer is (correctly, per #28) a
+    // failed call.
+    expect(result.rawResponse).toBe(messageOf(envelope).content);
   });
 
   it('refusal, truncation, and the generic no-parsable-text error are three distinct strings', async () => {
@@ -435,5 +450,127 @@ describe('WorkersAiProvider.complete() surfaces refusal and truncation distinctl
 
     const errors = results.map((r) => (r.ok ? null : r.error));
     expect(new Set(errors).size).toBe(3);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #27: WorkersAiProvider.complete() surfaces envelope.usage as
+// LlmUsage, so decide.ts can true up the pre-call Neuron reservation against
+// what Workers AI actually metered instead of always charging the estimate.
+// ---------------------------------------------------------------------------
+
+describe('WorkersAiProvider.complete() surfaces metered usage (issue #27)', () => {
+  for (const { name, fixture, schema } of OBJECT_RESPONSE_FIXTURES) {
+    it(`${name}: result.usage matches envelope.usage exactly`, async () => {
+      const ai = new StubAi(fixture.envelope);
+      const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+      const result = await provider.complete({
+        messages: [{ role: 'user', content: 'irrelevant - StubAi ignores it' }],
+        jsonSchema: schema,
+        maxTokens: 400,
+      });
+
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('unreachable');
+      expect(result.usage).toEqual({
+        promptTokens: fixture.envelope.usage.prompt_tokens,
+        completionTokens: fixture.envelope.usage.completion_tokens,
+        neurons: fixture.envelope.usage.neurons,
+        cachedTokens: fixture.envelope.usage.prompt_tokens_details.cached_tokens,
+      });
+    });
+  }
+
+  it('plain-text-prose: result.usage matches envelope.usage exactly (response is a string, not an object)', async () => {
+    const ai = new StubAi(plainTextProse.envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'irrelevant - StubAi ignores it' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.usage).toEqual({
+      promptTokens: plainTextProse.envelope.usage.prompt_tokens,
+      completionTokens: plainTextProse.envelope.usage.completion_tokens,
+      neurons: plainTextProse.envelope.usage.neurons,
+      cachedTokens: plainTextProse.envelope.usage.prompt_tokens_details.cached_tokens,
+    });
+  });
+
+  it('estimateNeurons(usage.promptTokens, usage.completionTokens) reproduces usage.neurons on all five captures', () => {
+    // The pricing constants were never wrong (issue #27) - this is the
+    // check that proves it directly against the metered figure, independent
+    // of anything estimateTokens ever guesses.
+    for (const { fixture } of ALL_FIXTURES) {
+      const { prompt_tokens, completion_tokens, neurons } = fixture.envelope.usage;
+      // precision 3 (i.e. within 0.0005) rather than exact equality -
+      // `neurons` in the fixtures carries float noise from Cloudflare's own
+      // computation (e.g. 21.355327606201172), not a value derived from
+      // this formula bit-for-bit.
+      expect(estimateNeurons(prompt_tokens, completion_tokens)).toBeCloseTo(neurons, 3);
+    }
+  });
+
+  it('omits usage entirely when prompt_tokens, completion_tokens, or neurons is missing or not a finite number', async () => {
+    // Defensive per field, not "extract what's there" - a partial/guessed
+    // usage block would silently corrupt decide.ts's true-up arithmetic, so
+    // any one bad field drops the whole block rather than shipping a
+    // partial one.
+    const cases: Record<string, unknown>[] = [
+      { ...structuredClone(jsonSchemaSquad.envelope), usage: undefined },
+      {
+        ...structuredClone(jsonSchemaSquad.envelope),
+        usage: { prompt_tokens: 'not-a-number', completion_tokens: 1, neurons: 1 },
+      },
+      {
+        ...structuredClone(jsonSchemaSquad.envelope),
+        usage: { prompt_tokens: 1, completion_tokens: Number.NaN, neurons: 1 },
+      },
+      {
+        ...structuredClone(jsonSchemaSquad.envelope),
+        usage: { prompt_tokens: 1, completion_tokens: 1 }, // neurons missing entirely
+      },
+    ];
+    for (const envelope of cases) {
+      const ai = new StubAi(envelope);
+      const provider = new WorkersAiProvider(ai as unknown as Ai);
+      const result = await provider.complete({
+        messages: [{ role: 'user', content: 'x' }],
+        jsonSchema: SQUAD_SCHEMA,
+        maxTokens: 400,
+      });
+      expect(result.ok).toBe(true);
+      if (!result.ok) throw new Error('unreachable');
+      expect(result.usage).toBeUndefined();
+    }
+  });
+
+  it('cached_tokens is optional and does not gate the rest of usage', async () => {
+    const envelope = structuredClone(jsonSchemaSquad.envelope) as Record<string, unknown>;
+    // `prompt_tokens_details` absent entirely - a plausible future envelope
+    // shape, not just cached_tokens: 0. usage must still extract.
+    delete (envelope.usage as Record<string, unknown>).prompt_tokens_details;
+    const ai = new StubAi(envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(result.usage).toEqual({
+      promptTokens: jsonSchemaSquad.envelope.usage.prompt_tokens,
+      completionTokens: jsonSchemaSquad.envelope.usage.completion_tokens,
+      neurons: jsonSchemaSquad.envelope.usage.neurons,
+    });
+    expect(result.usage).not.toHaveProperty('cachedTokens');
   });
 });

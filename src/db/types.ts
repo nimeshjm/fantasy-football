@@ -165,6 +165,23 @@ export interface AiCallInput {
   deterministicScore?: number;
   estNeuronsIn: number;
   estNeuronsOut: number;
+  /**
+   * The metered figures Workers AI actually charged for this call, from
+   * `envelope.usage` (issue #27) -- kept ALONGSIDE `estNeuronsIn`/
+   * `estNeuronsOut` rather than overwriting them. Holding the pre-call
+   * estimate next to the post-call actual is the whole point: it is what
+   * makes future recalibration of `estimateTokens` possible from real data,
+   * the way this issue itself was diagnosed from `test/fixtures/workers-ai/`.
+   * Undefined on every failed call (no metered `usage` to record -- see
+   * `LlmAuditSink.record` in decide.ts) and on any row logged before this
+   * column existed (`migrations/0004_ai_calls_metered_usage.sql`).
+   */
+  meteredPromptTokens?: number;
+  meteredCompletionTokens?: number;
+  meteredNeurons?: number;
+  /** `usage.prompt_tokens_details.cached_tokens` -- 0 in all five recorded
+   * captures. See `LlmUsage.cachedTokens` in src/ai/provider.ts. */
+  cachedTokens?: number;
 }
 
 /** The gate half of an `ai_calls` row, applied to an already-inserted row

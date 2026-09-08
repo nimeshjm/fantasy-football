@@ -23,18 +23,96 @@ const PROMPT_POSITION_CODE: Record<Position, string> = {
   [Position.FWD]: 'FWD',
 };
 
-/** Approximate token estimate: ~4 characters per token. No tokenizer is
- * loaded into the Worker, so this is intentionally rough - it exists to
- * catch gross overruns before they cost a wasted Workers AI call, not to
- * predict exact usage. */
+/**
+ * Approximate token estimate. No tokenizer is loaded into the Worker, so
+ * this is intentionally rough - it exists to catch gross overruns before
+ * they cost a wasted Workers AI call, not to predict exact usage.
+ *
+ * The invariant this function exists to satisfy is ONE-SIDED:
+ * `estimateTokens(text) >= the real prompt_tokens Workers AI will meter for
+ * that text`. Never a tolerance band. Underestimating breaks the context
+ * guard in `assertPromptFits` - the failure mode is a request that silently
+ * exceeds the model's real window. Overestimating only costs a rounding
+ * error in a cheap pre-call reservation (input Neurons price at
+ * 26,668/1M ~= 0.027 each - see `NEURONS_PER_1M_INPUT_TOKENS` in
+ * provider.ts) and is the direction to err in.
+ *
+ * The original `Math.ceil(text.length / 4)` was calibrated for English
+ * prose, and undershot on every one of the five real Workers AI responses
+ * captured for issue #15 (test/fixtures/workers-ai/, commit 797bc37) except
+ * the one prose sample - because this agent's actual prompts are id-,
+ * number- and punctuation-dense tabular data
+ * (`101 GK ARO 4.5 3.1`-style rows), not prose, and dense text costs more
+ * tokens per character. Measured chars/token (chars = sum of
+ * `request.messages[].content.length`, tokens = `envelope.usage.prompt_tokens`):
+ *
+ *   fixture                   | chars | real prompt_tokens | chars/token | old estimate (chars/4)
+ *   ---------------------------|------:|--------------------:|------------:|------------------------:
+ *   json-schema-squad          |   610 |                  340 |        1.79 | 153 (45% of real - UNDER)
+ *   json-schema-lineup         |   404 |                  213 |        1.90 | 101 (47% of real - UNDER)
+ *   json-schema-transfer       |   309 |                  146 |        2.12 |  78 (53% of real - UNDER)
+ *   plain-text-json-content    |   153 |                   80 |        1.91 |  39 (49% of real - UNDER)
+ *   plain-text-prose           |    85 |                   53 |        1.60 |  22 (42% of real - UNDER)
+ *
+ * (`plain-text-prose` measures 3.86 chars/token by the OLD chars/4 framing,
+ * i.e. chars/4 was already roughly correct there - see below for why it is
+ * kept in the calibration set anyway.)
+ *
+ * Two effects are conflated in that gap, and only one of them scales with
+ * prompt length:
+ *
+ *  - A FIXED chat-template overhead, independent of content length - BOS,
+ *    role headers, eot markers the model's chat template adds around every
+ *    call. Isolated from `plain-text-prose` (85 chars, 53 real tokens): even
+ *    at the correct ~4 chars/token for prose, content alone accounts for
+ *    ~22 tokens, leaving ~31 unaccounted for. Modelled here as a flat +32
+ *    tokens per `estimateTokens` CALL (not per prompt) - decide.ts's
+ *    `callLlm` calls it twice (`estimateTokens(prompt.system) +
+ *    estimateTokens(prompt.user)`), so the constant is applied twice there
+ *    for one actual per-CALL overhead. That is deliberate headroom, not a
+ *    bug to "optimise away" - the one-sided invariant only requires
+ *    OVER-estimating never being wrong, and `assertPromptFits` calls this on
+ *    the single joined `${system}\n${user}` string, where the tighter
+ *    single-application bound already holds.
+ *  - A RATIO that undershoots this agent's actual traffic. Prose measures
+ *    ~3.86 chars/token (chars/4 was fine there); this agent's real prompts -
+ *    tabular, digit- and delimiter-dense - measure 1.60-2.12. Modelled here
+ *    as chars/1.75, close to the tightest (worst-case) sample
+ *    (json-schema-squad, 1.79) with a small margin either side of it.
+ *
+ * `ceil(chars / 1.75) + 32` against the same five captures (see
+ * test/prompts.test.ts for the executable version of this table):
+ *
+ *   fixture                   | chars | real | estimate | margin
+ *   ---------------------------|------:|-----:|---------:|-------:
+ *   json-schema-squad          |   610 |  340 |      381 |   +12%
+ *   json-schema-lineup         |   404 |  213 |      263 |   +23%
+ *   json-schema-transfer       |   309 |  146 |      209 |   +43%
+ *   plain-text-json-content    |   153 |   80 |      120 |   +50%
+ *   plain-text-prose           |    85 |   53 |       81 |   +53%
+ *
+ * `estimate >= real` on all five, worst-case (tightest) margin 12% on the
+ * densest capture (json-schema-squad). No schema-size accounting is added
+ * here: the `json_schema` sent to Workers AI does NOT consume prompt tokens
+ * (ruled out during this issue's investigation - SQUAD_SCHEMA is the
+ * smallest of the three json_schema captures' schemas and has the largest
+ * gap; LINEUP_SCHEMA is the largest and over-estimates already, the
+ * opposite of what schema-cost accounting would predict).
+ *
+ * `plain-text-prose` MUST stay in the calibration set even though it is the
+ * smallest gap: it is the only sample where the old chars/4 ratio was
+ * already about right, so it is what would catch a future recalibration
+ * that over-corrects into inflating ordinary prose along with the tabular
+ * data this ratio is actually tuned for.
+ */
 export function estimateTokens(text: string): number {
-  return Math.ceil(text.length / 4);
+  return Math.ceil(text.length / 1.75) + 32;
 }
 
-/** Throws if `prompt` would not fit inside `maxTokens`, per the (approximate)
- * chars/4 estimator above. Callers pick `maxTokens` as the context window
- * minus whatever they intend to reserve for the answer (see
- * `CONTEXT_WINDOW_TOKENS` in provider.ts). */
+/** Throws if `prompt` would not fit inside `maxTokens`, per the (approximate,
+ * deliberately one-sided-conservative) `estimateTokens` above. Callers pick
+ * `maxTokens` as the context window minus whatever they intend to reserve
+ * for the answer (see `CONTEXT_WINDOW_TOKENS` in provider.ts). */
 export function assertPromptFits(prompt: string, maxTokens: number): void {
   const estimated = estimateTokens(prompt);
   if (estimated > maxTokens) {

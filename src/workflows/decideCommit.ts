@@ -259,10 +259,22 @@ export function makeAuditSink(deps: {
         prompt: `attempt ${e.attempt}`,
         rawResponse: e.rawResponse ?? e.reason ?? undefined,
         schemaValid: e.outcome === 'ok',
-        validationOutcome: e.outcome,
+        // `e.reason` folded in here (not just `e.outcome`) so it survives
+        // onto the row even now that a failed call can ALSO carry a
+        // `rawResponse` (issue #27, task 6 - a truncation's partial body).
+        // Before that, `rawResponse: e.rawResponse ?? e.reason` put the
+        // error text in `raw_response` on every failure; once `e.rawResponse`
+        // is populated too, that `??` prefers the partial body and `e.reason`
+        // would otherwise vanish from the row entirely with only the bare
+        // `outcome` tag left behind.
+        validationOutcome: e.reason ? `${e.outcome}: ${e.reason}` : e.outcome,
         repaired: false,
         estNeuronsIn: e.estNeuronsIn,
         estNeuronsOut: e.estNeuronsOut,
+        meteredPromptTokens: e.meteredPromptTokens,
+        meteredCompletionTokens: e.meteredCompletionTokens,
+        meteredNeurons: e.meteredNeurons,
+        cachedTokens: e.cachedTokens,
       });
       rowIdByAttempt.set(key(e.decisionKind, e.attempt), id);
     },
