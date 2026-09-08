@@ -48,7 +48,13 @@
             "maxLength": 300
           }
         },
-        "required": ["starters", "bench", "captain", "vice_captain", "reason"],
+        "required": [
+          "starters",
+          "bench",
+          "captain",
+          "vice_captain",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -85,10 +91,27 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "bench": [618, 640, 13, 7],
+      "bench": [
+        618,
+        640,
+        13,
+        7
+      ],
       "captain": 405,
       "reason": "Maximising expected points with a valid formation",
-      "starters": [148, 187, 77, 544, 436, 75, 242, 9, 539, 405, 264],
+      "starters": [
+        148,
+        187,
+        77,
+        544,
+        436,
+        75,
+        242,
+        9,
+        539,
+        405,
+        264
+      ],
       "vice_captain": 544
     },
     "service_tier": null,

@@ -1,5 +1,10 @@
 # Golden fixtures are stored minified on purpose: formatting them would roughly
 # triple their size for no benefit, and they are generated, not hand-edited.
 test/fixtures/
+# Recorded Workers AI envelopes, written by writeCassette with 2-space indent.
+# Same reasoning as test/fixtures/: generated, never hand-edited -- and if
+# prettier reformats them, `npm run lint` fails on every freshly recorded
+# cassette.
+eval/cassettes/
 package-lock.json
 .wrangler/

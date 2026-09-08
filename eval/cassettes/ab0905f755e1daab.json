@@ -33,7 +33,10 @@
             "maxLength": 300
           }
         },
-        "required": ["picks", "reason"],
+        "required": [
+          "picks",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -70,7 +73,23 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [27, 54, 7, 62, 238, 565, 13, 389, 187, 74, 200, 291, 299, 592, 183],
+      "picks": [
+        27,
+        54,
+        7,
+        62,
+        238,
+        565,
+        13,
+        389,
+        187,
+        74,
+        200,
+        291,
+        299,
+        592,
+        183
+      ],
       "reason": "Maximising expected points while respecting position and club constraints"
     },
     "service_tier": null,

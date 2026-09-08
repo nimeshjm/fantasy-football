@@ -48,7 +48,13 @@
             "maxLength": 300
           }
         },
-        "required": ["starters", "bench", "captain", "vice_captain", "reason"],
+        "required": [
+          "starters",
+          "bench",
+          "captain",
+          "vice_captain",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -85,10 +91,27 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "bench": [168, 487, 565, 389],
+      "bench": [
+        168,
+        487,
+        565,
+        389
+      ],
       "captain": 442,
       "reason": "Maximising expected points",
-      "starters": [62, 64, 355, 200, 264, 436, 527, 405, 442, 458, 527],
+      "starters": [
+        62,
+        64,
+        355,
+        200,
+        264,
+        436,
+        527,
+        405,
+        442,
+        458,
+        527
+      ],
       "vice_captain": 405
     },
     "service_tier": null,

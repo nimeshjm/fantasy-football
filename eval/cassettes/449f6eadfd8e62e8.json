@@ -33,7 +33,10 @@
             "maxLength": 300
           }
         },
-        "required": ["picks", "reason"],
+        "required": [
+          "picks",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -70,7 +73,23 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [27, 54, 7, 31, 151, 389, 238, 187, 19, 77, 323, 544, 241, 179, 241],
+      "picks": [
+        27,
+        54,
+        7,
+        31,
+        151,
+        389,
+        238,
+        187,
+        19,
+        77,
+        323,
+        544,
+        241,
+        179,
+        241
+      ],
       "reason": "Balanced squad with high xpts players"
     },
     "service_tier": null,

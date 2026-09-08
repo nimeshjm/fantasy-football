@@ -48,7 +48,13 @@
             "maxLength": 300
           }
         },
-        "required": ["starters", "bench", "captain", "vice_captain", "reason"],
+        "required": [
+          "starters",
+          "bench",
+          "captain",
+          "vice_captain",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -85,10 +91,27 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "bench": [168, 487, 565, 389],
+      "bench": [
+        168,
+        487,
+        565,
+        389
+      ],
       "captain": 442,
       "reason": "Maximising expected points with Pavlidis as captain",
-      "starters": [62, 64, 355, 200, 264, 436, 405, 527, 458, 442, 168],
+      "starters": [
+        62,
+        64,
+        355,
+        200,
+        264,
+        436,
+        405,
+        527,
+        458,
+        442,
+        168
+      ],
       "vice_captain": 405
     },
     "service_tier": null,

@@ -33,7 +33,10 @@
             "maxLength": 300
           }
         },
-        "required": ["picks", "reason"],
+        "required": [
+          "picks",
+          "reason"
+        ],
         "additionalProperties": false
       }
     },
@@ -70,7 +73,23 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [27, 168, 7, 13, 62, 238, 565, 389, 187, 78, 200, 291, 299, 592, 574],
+      "picks": [
+        27,
+        168,
+        7,
+        13,
+        62,
+        238,
+        565,
+        389,
+        187,
+        78,
+        200,
+        291,
+        299,
+        592,
+        574
+      ],
       "reason": "Maximizing expected points while considering injuries and suspensions."
     },
     "service_tier": null,
