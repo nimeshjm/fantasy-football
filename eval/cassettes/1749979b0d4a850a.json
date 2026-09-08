@@ -33,10 +33,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "picks",
-          "reason"
-        ],
+        "required": ["picks", "reason"],
         "additionalProperties": false
       }
     },
@@ -73,23 +70,7 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [
-        27,
-        168,
-        7,
-        62,
-        238,
-        565,
-        13,
-        187,
-        78,
-        200,
-        291,
-        650,
-        592,
-        574,
-        183
-      ],
+      "picks": [27, 168, 7, 62, 238, 565, 13, 187, 78, 200, 291, 650, 592, 574, 183],
       "reason": "Optimal squad selection within budget and constraints"
     },
     "service_tier": null,

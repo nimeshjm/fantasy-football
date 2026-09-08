@@ -33,10 +33,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "picks",
-          "reason"
-        ],
+        "required": ["picks", "reason"],
         "additionalProperties": false
       }
     },
@@ -73,23 +70,7 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [
-        27,
-        54,
-        7,
-        31,
-        151,
-        389,
-        77,
-        323,
-        655,
-        380,
-        544,
-        241,
-        179,
-        241,
-        617
-      ],
+      "picks": [27, 54, 7, 31, 151, 389, 77, 323, 655, 380, 544, 241, 179, 241, 617],
       "reason": "Optimized squad with 5 DEF, 5 MID, and 3 FWD, while maximizing expected points and staying within the budget constraint of EUR100.0m."
     },
     "service_tier": null,

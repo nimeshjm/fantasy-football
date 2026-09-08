@@ -40,10 +40,14 @@ function jaccardDistance(a: Set<number>, b: Set<number>): number {
 
 function differentiation(c: EvalCase, o: TaskOutcome): number {
   if (c.input.kind === 'transfer') {
-    return jaccardDistance(
-      transferElementIds(o.transfers),
-      transferElementIds(o.reference.transfers),
-    );
+    const reference = transferElementIds(o.reference.transfers);
+    // The transfer reference is `fallbackMove`, which is empty ("make no
+    // transfer"). Distance from the empty set is 1 for any move the model
+    // makes, so the figure carries no information -- the first live run
+    // duly reported a flat 1.0 across every transfer case. NaN is the
+    // honest answer until there is a non-trivial reference to compare to.
+    if (reference.size === 0) return NaN;
+    return jaccardDistance(transferElementIds(o.transfers), reference);
   }
   if (c.input.kind === 'lineup') {
     return jaccardDistance(xiElementIds(o.picks), xiElementIds(o.reference.picks));

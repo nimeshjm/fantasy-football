@@ -33,10 +33,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "picks",
-          "reason"
-        ],
+        "required": ["picks", "reason"],
         "additionalProperties": false
       }
     },
@@ -73,23 +70,7 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [
-        27,
-        54,
-        62,
-        238,
-        301,
-        389,
-        423,
-        592,
-        323,
-        425,
-        655,
-        9,
-        131,
-        202,
-        352
-      ],
+      "picks": [27, 54, 62, 238, 301, 389, 423, 592, 323, 425, 655, 9, 131, 202, 352],
       "reason": "Maximizing expected points within budget and position constraints"
     },
     "service_tier": null,

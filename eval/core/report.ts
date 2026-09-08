@@ -121,9 +121,16 @@ function headerLine(summary: Summary): string {
       ? `${summary.models.join(', ')} (responding: ${summary.respondingModels.join(', ')})`
       : summary.models.join(', ');
 
+  // A replay run charges nothing; the figure is what the same calls would
+  // have cost live, which is worth reporting but must not read as a spend.
+  const cost =
+    summary.mode === 'live'
+      ? `neuronsSpent: ${summary.neuronsSpent.toFixed(1)}`
+      : `neuronsWouldHaveCost: ${summary.neuronsSpent.toFixed(1)}`;
+
   return (
     `runId: ${summary.runId} | mode: ${summary.mode} | model(s): ${modelsPart || '(none)'} | ` +
-    `trials: ${summary.trialCount} | neuronsSpent: ${summary.neuronsSpent}`
+    `trials: ${summary.trialCount} | ${cost}`
   );
 }
 

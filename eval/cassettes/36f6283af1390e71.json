@@ -32,11 +32,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "element_in",
-          "element_out",
-          "reason"
-        ],
+        "required": ["element_in", "element_out", "reason"],
         "additionalProperties": false
       }
     },

@@ -48,13 +48,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "starters",
-          "bench",
-          "captain",
-          "vice_captain",
-          "reason"
-        ],
+        "required": ["starters", "bench", "captain", "vice_captain", "reason"],
         "additionalProperties": false
       }
     },
@@ -91,27 +85,10 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "bench": [
-        148,
-        242,
-        618,
-        640
-      ],
+      "bench": [148, 242, 618, 640],
       "captain": 405,
       "reason": "Maximising expected points with injury/suspension notes considered",
-      "starters": [
-        7,
-        9,
-        13,
-        75,
-        77,
-        187,
-        264,
-        405,
-        436,
-        539,
-        544
-      ],
+      "starters": [7, 9, 13, 75, 77, 187, 264, 405, 436, 539, 544],
       "vice_captain": 9
     },
     "service_tier": null,

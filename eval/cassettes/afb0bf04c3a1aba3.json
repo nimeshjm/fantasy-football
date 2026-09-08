@@ -33,10 +33,7 @@
             "maxLength": 300
           }
         },
-        "required": [
-          "picks",
-          "reason"
-        ],
+        "required": ["picks", "reason"],
         "additionalProperties": false
       }
     },
@@ -73,23 +70,7 @@
     "prompt_text": null,
     "prompt_token_ids": null,
     "response": {
-      "picks": [
-        27,
-        54,
-        62,
-        238,
-        301,
-        389,
-        431,
-        442,
-        487,
-        592,
-        655,
-        168,
-        299,
-        315,
-        327
-      ],
+      "picks": [27, 54, 62, 238, 301, 389, 431, 442, 487, 592, 655, 168, 299, 315, 327],
       "reason": "Balanced squad with high xpts and minimal injuries/suspensions"
     },
     "service_tier": null,
