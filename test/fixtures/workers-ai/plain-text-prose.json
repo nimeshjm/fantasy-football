@@ -1,0 +1,57 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-08",
+    "method": "Throwaway Worker running under `wrangler dev`; the AI binding always reaches remote Workers AI, so this is a live response. Recorded as JSON.stringify(await env.AI.run(model, input, {})) - i.e. exactly the value WorkersAiProvider passes to extractResponseText, with no REST wrapper and no hand-editing.",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "account": "nimeshjm's Cloudflare account, free plan",
+    "note": "NO response_format, prose answer. This is the only captured case where `response` is a STRING.",
+    "mode": "plain-text-prose",
+    "respondingModel": "@cf/meta/llama-3.3-70b-instruct-sd",
+    "neurons": 3.8710503578186035,
+    "typeofResponse": "string"
+  },
+  "request": null,
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "A balanced squad helps mitigate risk and ensures consistent scoring.",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788855893,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-944ae44b-2488-4b7c-b542-83d9df691ab1",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-instruct-sd",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": "A balanced squad helps mitigate risk and ensures consistent scoring.",
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 53,
+      "completion_tokens": 12,
+      "total_tokens": 65,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 3.8710503578186035
+    }
+  }
+}

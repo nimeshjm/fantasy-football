@@ -117,18 +117,32 @@ export class WorkersAiProvider implements LlmProvider {
 /**
  * Pulls the model's answer out of the Workers AI response envelope.
  *
- * The shape depends on whether JSON mode is active, which is the trap this
- * function exists to handle. In plain text mode `response` is a string. With
- * `response_format: { type: 'json_schema' }` the runtime parses the answer for
- * you and `response` is an **object**.
- *
  * The original implementation accepted only a string, so in JSON mode — the
  * only mode this agent uses — every call was discarded as unparsable *after*
  * the Neurons had been spent. It cost ~530 Neurons and two fallback decisions
- * before the audit trail made it visible.
+ * before the audit trail made it visible (d2a959c fixed it by also accepting
+ * an object `response`).
  *
- * Callers want text they can `JSON.parse`, so an object response is
- * re-serialised rather than returned as-is.
+ * That fix's own doc comment then stated the wrong reason. It claimed the
+ * shape depends on the MODE: string in plain text, object in JSON mode. Five
+ * real Workers AI responses were captured to check that claim (see
+ * test/fixtures/workers-ai/, `_captured.method` for how) and it is false.
+ * `test/fixtures/workers-ai/plain-text-json-content.json` has NO
+ * `response_format` at all — plain text mode — yet the model's answer
+ * happened to be JSON and `response` came back as a parsed **object**, same
+ * as the three json_schema captures
+ * (json-schema-squad.json/json-schema-lineup.json/json-schema-transfer.json).
+ * `response` was a string in exactly one capture,
+ * `plain-text-prose.json`, where the answer was prose that does not parse as
+ * JSON. The real rule, per these captures: **the runtime parses `response`
+ * whenever the answer text parses as JSON, independent of which mode was
+ * requested.** Mode correlates with the outcome (JSON mode all but forces a
+ * JSON answer) but does not cause it.
+ *
+ * The implementation below already handles both recorded shapes correctly —
+ * this correction is to the explanation, not the code. Callers want text
+ * they can `JSON.parse`, so an object response is re-serialised rather than
+ * returned as-is.
  */
 function extractResponseText(result: unknown): string | null {
   if (!result || typeof result !== 'object') return null;

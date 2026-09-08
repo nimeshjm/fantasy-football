@@ -1,0 +1,64 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-08",
+    "method": "Throwaway Worker running under `wrangler dev`; the AI binding always reaches remote Workers AI, so this is a live response. Recorded as JSON.stringify(await env.AI.run(model, input, {})) - i.e. exactly the value WorkersAiProvider passes to extractResponseText, with no REST wrapper and no hand-editing.",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "account": "nimeshjm's Cloudflare account, free plan",
+    "note": "NO response_format. The model was asked for JSON and emitted JSON, and the runtime STILL parsed it: `response` is an OBJECT. So the envelope shape is not decided by the mode - it is decided by whether the content parses as JSON.",
+    "mode": "plain-text",
+    "respondingModel": "@cf/meta/llama-3.3-70b-instruct-sd",
+    "neurons": 6.024714469909668,
+    "typeofResponse": "object"
+  },
+  "request": null,
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "{\"picks\":[101, 202, 303],\"reason\":\"Randomly selected\"}",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788855867,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-fd347adb-bf7e-46bd-976c-c04108cca64f",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-instruct-sd",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": {
+      "picks": [
+        101,
+        202,
+        303
+      ],
+      "reason": "Randomly selected"
+    },
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 80,
+      "completion_tokens": 19,
+      "total_tokens": 99,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 6.024714469909668
+    }
+  }
+}

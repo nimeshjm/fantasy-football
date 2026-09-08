@@ -1,0 +1,99 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-08",
+    "method": "Throwaway Worker running under `wrangler dev`; the AI binding always reaches remote Workers AI, so this is a live response. Recorded as JSON.stringify(await env.AI.run(model, input, {})) - i.e. exactly the value WorkersAiProvider passes to extractResponseText, with no REST wrapper and no hand-editing.",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast",
+    "account": "nimeshjm's Cloudflare account, free plan",
+    "note": "JSON mode with TRANSFER_SCHEMA. `response` is a parsed OBJECT.",
+    "mode": "json_schema",
+    "respondingModel": "@cf/meta/llama-3.3-70b-json",
+    "neurons": 10.856861114501953,
+    "typeofResponse": "object"
+  },
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are a Fantasy Liga Portugal transfer picker. Answer only with JSON matching the schema. Use 0 for both ids to make no transfer."
+      },
+      {
+        "role": "user",
+        "content": "Bank 1.5m. One free transfer.\nCandidate transfers (out id/projected -> in id/projected, cost delta):\n205 3.1 -> 206 3.4, +0.5m\n305 4.4 -> 306 4.0, -0.5m\n101 3.1 -> 103 3.5, +0.5m"
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "type": "object",
+        "properties": {
+          "element_in": {
+            "type": "integer",
+            "description": "Id of the player to buy, matching a candidate. 0 means no transfer."
+          },
+          "element_out": {
+            "type": "integer",
+            "description": "Id of the player to sell, matching the same candidate. 0 means no transfer."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "element_in",
+          "element_out",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "max_tokens": 300
+  },
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "{\"element_in\": 103, \"element_out\": 101, \"reason\": \"Improves team with a better projected score and fits within the budget.\"}",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788855866,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-e15f4c67-99e6-4612-8066-bd5fa7f0336b",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-json",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": {
+      "element_in": 103,
+      "element_out": 101,
+      "reason": "Improves team with a better projected score and fits within the budget."
+    },
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 146,
+      "completion_tokens": 34,
+      "total_tokens": 180,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 10.856861114501953
+    }
+  }
+}
