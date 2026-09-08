@@ -27,7 +27,7 @@ import { formatConsoleTable, summarize, writeReport } from '../eval/core/report'
 import { fantasyTasks } from '../eval/suites/fantasy/tasks';
 import { fantasyGraders } from '../eval/suites/fantasy/graders';
 import { datasetNotes } from '../eval/suites/fantasy/dataset';
-import type { AiCallLog, AiShim } from '../eval/core/types';
+import type { AiCallLog, AiShim, EvalTask } from '../eval/core/types';
 
 const CASSETTE_DIR = path.join(import.meta.dirname, '../eval/cassettes');
 const RUNS_DIR = path.join(import.meta.dirname, '../eval/runs');
@@ -44,14 +44,36 @@ const DEFAULT_MAX_NEURONS = 2600;
 
 const tasks = fantasyTasks();
 
-function suiteWorstCase(): number {
+/** Narrows the live lane to one task so a targeted run (say, repeated squad
+ * samples to size the run-to-run variance) does not pay for the other two.
+ * Live only: the replay lane is free and always grades everything. */
+export function selectTasks(taskId: string | undefined): EvalTask[] {
+  if (taskId === undefined) return tasks;
+  const picked = tasks.filter((t) => t.id === taskId);
+  if (picked.length === 0) {
+    throw new Error(
+      `EVAL_TASK=${taskId} matches no task; have ${tasks.map((t) => t.id).join(', ')}`,
+    );
+  }
+  return picked;
+}
+
+function worstCaseOf(selected: EvalTask[]): number {
   let total = 0;
-  for (const t of tasks) for (const c of t.cases()) total += t.worstCaseNeurons(c);
+  for (const t of selected) for (const c of t.cases()) total += t.worstCaseNeurons(c);
   return total;
 }
 
+function countCases(selected: EvalTask[]): number {
+  return selected.reduce((n, t) => n + t.cases().length, 0);
+}
+
+function suiteWorstCase(): number {
+  return worstCaseOf(tasks);
+}
+
 function caseCount(): number {
-  return tasks.reduce((n, t) => n + t.cases().length, 0);
+  return countCases(tasks);
 }
 
 /** Stands in for a provider that cannot be reached at all, which is the only
@@ -70,6 +92,10 @@ describe('eval harness', () => {
   it('reports the pre-flight budget for a live run', () => {
     const worst = suiteWorstCase();
     expect(caseCount()).toBeGreaterThan(0);
+    expect(selectTasks(undefined)).toHaveLength(3);
+    expect(selectTasks('fantasy/squad').map((t) => t.id)).toEqual(['fantasy/squad']);
+    expect(countCases(selectTasks('fantasy/squad'))).toBe(3);
+    expect(() => selectTasks('squad')).toThrow(/matches no task/);
     expect(worst).toBeGreaterThan(0);
     // Every single call must fit the default cap, or the gate would refuse
     // trials that in practice cost a fraction of their ceiling.
@@ -207,9 +233,13 @@ const live = process.env.EVAL_LIVE === '1';
 describe.skipIf(!live)('eval live lane', () => {
   it('runs the suite against Workers AI and records cassettes', async () => {
     const cap = Number(process.env.EVAL_MAX_NEURONS ?? DEFAULT_MAX_NEURONS);
-    const worst = suiteWorstCase();
+    const selected = selectTasks(process.env.EVAL_TASK);
+    const repeats = Number(process.env.EVAL_REPEATS ?? 1);
+    const worst = worstCaseOf(selected) * repeats;
     console.log(
-      `live run: ${caseCount()} cases, worst case ${worst.toFixed(0)} Neurons, cap ${cap}`,
+      `live run: ${selected.map((t) => t.id).join(', ')} | ` +
+        `${countCases(selected)} cases x ${repeats} = ${countCases(selected) * repeats} trials | ` +
+        `worst case ${worst.toFixed(0)} Neurons, cap ${cap}`,
     );
 
     const ai = restAiFromEnv();
@@ -221,12 +251,12 @@ describe.skipIf(!live)('eval live lane', () => {
       runId: path.basename(runDir),
       mode: 'live',
       model: MODEL,
-      tasks,
+      tasks: selected,
       graders: fantasyGraders,
       ai,
       budget,
       recorder,
-      repeats: Number(process.env.EVAL_REPEATS ?? 1),
+      repeats,
     });
 
     for (const call of ai.calls) {
@@ -241,7 +271,12 @@ describe.skipIf(!live)('eval live lane', () => {
     console.log(formatConsoleTable(summary));
     console.log(`spent ${result.neuronsSpent.toFixed(1)} Neurons of ${cap}`);
 
-    expect(result.trials.length + result.skipped.length).toBeGreaterThan(0);
+    // A budget skip leaves the previous cassette in place, so the replay lane
+    // keeps passing and the shortfall goes unnoticed - two live runs silently
+    // dropped transfer-gw4 that way. Fail here instead, after the cassettes
+    // are written, so the fix is to raise the cap and re-run the remainder.
+    expect(result.skipped).toEqual([]);
+    expect(result.trials.length).toBe(countCases(selected) * repeats);
     expect(result.neuronsSpent).toBeLessThanOrEqual(cap + 300);
   }, 600_000);
 });
