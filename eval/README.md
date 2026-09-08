@@ -100,9 +100,10 @@ formality.
   (`runSuite`), `budget.ts` (Neuron budgeting), `sink.ts` (the audit sink that
   captures each attempt), `report.ts` (aggregation and the markdown/console/JSON
   report).
-- `eval/suites/fantasy/` — the fantasy-football decision suite: cases built
-  from `test/fixtures/`, the squad/lineup/transfer tasks, and the five graders.
-  This lands after the harness (issue #29, PRs 3 and 4).
+- `eval/suites/fantasy/` — the fantasy-football decision suite: `fixtures.ts`
+  (the point-in-time rebuild, shared with `test/backtest.test.ts`),
+  `dataset.ts` (nine fixture cases, GW2-4), `adversarial.ts` (four synthetic
+  lineups), `tasks.ts` (the three tasks), and `graders/` (the five axes).
 - `eval/cassettes/` — committed recorded response envelopes, one per
   `(model, input)` pair the replay lane depends on. Empty until the first live
   run records some.
@@ -111,9 +112,33 @@ formality.
 - `eval/runs/` — gitignored output: `trials.jsonl`, `summary.json`, and
   `report.md` per run, written under `eval/runs/<runId>/`.
 
-`test/eval.test.ts` is the single vitest entry point that drives all of this —
-replay always runs, live is gated behind `EVAL_LIVE=1`. As of this writing it
-has not landed yet (it is scoped to a later PR in the issue's stack), so
-`npm run eval` and the suite/cassette/prompt directories above are the target
-design, not something you can run today. `eval/core/` is the part that exists
-now.
+`test/eval.test.ts` is the single vitest entry point, in three lanes:
+
+- **harness** — always runs, no network and no cassettes needed. It drives all
+  13 cases with a dead provider and checks each one still yields a legal,
+  graded, recorded trial. This is the CI guard, and it is what catches a broken
+  harness rather than a bad model.
+- **replay** — skipped until `eval/cassettes/` has something in it. Re-grades
+  recorded answers.
+- **live** — `EVAL_LIVE=1` only. Needs `CLOUDFLARE_API_TOKEN` and
+  `CLOUDFLARE_ACCOUNT_ID`, capped by `EVAL_MAX_NEURONS` (default 2000).
+
+Run the replay and harness lanes with `npm run eval`, or just `npm run test`,
+which includes them.
+
+## What a live run costs
+
+Measured, not guessed. Per _call_ ceilings are squad ~297, lineup ~126 and
+transfer ~81 Neurons — that is the pre-call `max_tokens` reservation
+`decide.ts` charges when a call fails. Per _decision_ the ceiling is three
+times that, since `MAX_RETRIES` is 2, and the whole 13-case suite's worst case
+is ~6,030 Neurons. Expected cost is far lower: ~241 Neurons for the suite, from
+the ~21/21/11 metered figures in the recorded captures.
+
+The runner gates each trial on one call's ceiling rather than the decision's,
+because `callLlm` re-checks the budget before every attempt and stops cleanly
+on its own. Gating on the retry ceiling would refuse trials that in practice
+cost about 4% of it.
+
+The 2000 default is the honest headroom: the free plan allows 10,000
+Neurons/day and the production agent reserves 8,000 via `NEURON_DAILY_CAP`.
