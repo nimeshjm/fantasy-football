@@ -8,9 +8,22 @@
     "mode": "plain-text",
     "respondingModel": "@cf/meta/llama-3.3-70b-instruct-sd",
     "neurons": 6.024714469909668,
-    "typeofResponse": "object"
+    "typeofResponse": "object",
+    "requestBackfilled": "The capture worker recorded `request` only on its json_schema routes, so these messages were copied verbatim out of the capture worker source that produced this envelope, NOT retyped. No response_format was sent on this route - that is the point of this capture. Verify against usage.prompt_tokens (80) rather than trusting this field."
   },
-  "request": null,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "Answer only with JSON matching this shape: {\"picks\":[int,...],\"reason\":\"string\"}"
+      },
+      {
+        "role": "user",
+        "content": "Pick 3 element ids from 101, 202, 303, 404 and say why in under 15 words."
+      }
+    ],
+    "max_tokens": 200
+  },
   "envelope": {
     "choices": [
       {

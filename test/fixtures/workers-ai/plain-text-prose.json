@@ -8,9 +8,22 @@
     "mode": "plain-text-prose",
     "respondingModel": "@cf/meta/llama-3.3-70b-instruct-sd",
     "neurons": 3.8710503578186035,
-    "typeofResponse": "string"
+    "typeofResponse": "string",
+    "requestBackfilled": "The capture worker recorded `request` only on its json_schema routes, so these messages were copied verbatim out of the capture worker source that produced this envelope, NOT retyped. No response_format was sent on this route - that is the point of this capture. Verify against usage.prompt_tokens (53) rather than trusting this field."
   },
-  "request": null,
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are terse."
+      },
+      {
+        "role": "user",
+        "content": "In one short sentence, why is a balanced fantasy football squad useful?"
+      }
+    ],
+    "max_tokens": 60
+  },
   "envelope": {
     "choices": [
       {
