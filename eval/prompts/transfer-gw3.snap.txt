@@ -1,0 +1,37 @@
+### case: transfer-gw3
+### system
+You may make AT MOST ONE transfer this gameweek for a Fantasy Liga Portugal (Betclic) team, chosen only from the numbered candidate list below - every candidate is already legal and budget-checked, so you do not need to check budget or squad rules yourself. Each candidate's "gain" is the deterministic model's projected point gain over the planning horizon if made. A player's "news" field is a Portuguese injury/suspension note the deterministic gain does not fully capture - weigh it when a candidate's outgoing or incoming player is flagged. Pick the single best candidate, or elect not to transfer if none clearly helps. Respond using the JSON schema only: to make a transfer, echo that candidate's element_in and element_out ids exactly as given; to make no transfer, respond element_in=0 and element_out=0. Always include one short reason.
+### user
+Bank: EUR6.9m.
+Current squad (15 players):
+id|name|pos|club|cost|xpts|form|mins|news?
+7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117
+9|André Clóvis|FWD|AVFC|6.0|3.5|4.5|275
+13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
+75|Baeza|MID|CDN|5.0|3.5|3.2|282
+77|Liziero|MID|CDN|5.0|3.7|5.0|337
+148|Léo Linck|GK|CFEA|5.0|0.0|2.7|270
+187|Fontán|DEF|FCA|5.2|3.8|7.0|360
+242|Diogo Costa|GK|FCP|6.6|3.5|6.5|360
+264|Gabri Veiga|MID|FCP|8.3|3.8|9.5|308
+405|Gonçalo Paciência|FWD|CDSC|5.8|5.7|7.2|295
+436|Prestianni|MID|SLB|8.2|0.0|8.7|250
+539|Ioannidis|FWD|SCP|9.5|6.7|5.2|159
+544|Zalazar|MID|SCP|10.5|4.7|5.5|347
+618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
+640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
+
+Candidate transfers:
+1. element_in=200 element_out=436 gain:+2.7 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
+2. element_in=296 element_out=436 gain:+2.5 | IN 296|Joelson Fernandes|MID|GVFC|5.5|3.6|3.3|212 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
+3. element_in=62 element_out=640 gain:+2.4 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
+4. element_in=62 element_out=618 gain:+1.9 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
+5. element_in=62 element_out=640 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
+6. element_in=62 element_out=13 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
+7. element_in=64 element_out=618 gain:+1.3 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
+8. element_in=62 element_out=7 gain:+1.3 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117
+9. element_in=64 element_out=640 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
+10. element_in=64 element_out=13 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
+11. element_in=200 element_out=436 gain:+0.8 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
+12. element_in=62 element_out=187 gain:+0.7 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 187|Fontán|DEF|FCA|5.2|3.8|7.0|360
+13. element_in=389 element_out=618 gain:+0.7 | IN 389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0

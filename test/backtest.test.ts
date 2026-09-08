@@ -33,8 +33,9 @@
  *    form, which is exactly what a point-in-time backtest must not see.
  *
  * `ep_next` is forced to `null` on every converted element (see
- * `toElement` below) specifically so the one leak big enough to matter
- * cannot sneak back in as a de facto v1 arm. The two leaks above are left
+ * `toElement` in eval/suites/fantasy/fixtures.ts) specifically so the one
+ * leak big enough to matter cannot sneak back in as a de facto v1 arm. The
+ * two leaks above are left
  * in because there is no fix available from the data this repo has (there
  * is exactly one bootstrap-static.json), they pull in OPPOSITE directions
  * (the status leak understates v2, the price leak flatters it), and,
@@ -43,18 +44,14 @@
  * out for what it is rather than pretending the backtest is leak-free.
  */
 import { describe, expect, it } from 'vitest';
-import { fitTeamRatings } from '../src/model/ratings';
-import { projectAll, STRATEGY_MODEL_V2, type UpcomingFixtureInfo } from '../src/model/projection';
+import {
+  actualPointsByElement,
+  liveFileByEvent,
+  liveFileToEventLive,
+  minutesByElement,
+  pointInTimeState,
+} from '../eval/suites/fantasy/fixtures';
 import { deriveGwStatsFromLive } from '../src/workflows/ingest';
-import type { EventLive, LiveExplainStat } from '../src/api/endpoints';
-import { Position, type Element, type Fixture, type GwStats } from '../src/types';
-
-import bootstrapStatic from './fixtures/bootstrap-static.json';
-import fixtures1to4 from './fixtures/fixtures-1-4.json';
-import live1 from './fixtures/live-1.json';
-import live2 from './fixtures/live-2.json';
-import live3 from './fixtures/live-3.json';
-import live4 from './fixtures/live-4.json';
 
 // ---------------------------------------------------------------------------
 // Part 1: the Spearman rank-correlation helper, written and tested here
@@ -145,134 +142,7 @@ describe('spearman (hand-computed cases)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// Part 2: fixture loading / conversion helpers
-// ---------------------------------------------------------------------------
-
-/** `bootstrap-static.json`'s per-element shape -- a reduced projection of
- * `Element`, not the full API shape (see `toElement` below for what's
- * filled in). */
-interface BootstrapElement {
-  id: number;
-  web_name: string;
-  team: number;
-  element_type: number;
-  now_cost: number;
-  status: string;
-  news: string;
-  ep_next: string | null;
-  total_points: number;
-  minutes: number;
-  chance_of_playing_next_round: number | null;
-  selected_by_percent: string;
-  form: string;
-}
-
-const bootstrapElements = bootstrapStatic.elements as unknown as BootstrapElement[];
-
-/** Converts one `bootstrap-static.json` row into a full `Element`. Fields
- * with no source in the reduced fixture get an inert default (empty name
- * strings, no news-added timestamp, etc) -- none of those feed
- * `projectModelV2`'s arithmetic. `ep_next` is force-nulled: see the
- * module-level "WHY NOT A v1 BACKTEST" comment for why that field must
- * never round-trip through this backtest. */
-function toElement(b: BootstrapElement): Element {
-  return {
-    id: b.id,
-    code: b.id,
-    web_name: b.web_name,
-    first_name: '',
-    second_name: '',
-    team: b.team,
-    element_type: b.element_type as Position,
-    now_cost: b.now_cost,
-    status: b.status,
-    news: b.news,
-    news_added: null,
-    chance_of_playing_this_round: b.chance_of_playing_next_round,
-    chance_of_playing_next_round: b.chance_of_playing_next_round,
-    total_points: b.total_points,
-    event_points: 0,
-    points_per_game: '0.0',
-    form: b.form,
-    ep_next: null,
-    ep_this: null,
-    selected_by_percent: b.selected_by_percent,
-    minutes: b.minutes,
-    removed: false,
-    can_select: true,
-    can_transact: true,
-  };
-}
-
-const elements: Element[] = bootstrapElements.map(toElement);
-
-const fixtures = fixtures1to4 as unknown as Fixture[];
-
-/** One row of a `live-N.json` file's `elements` array:
- * `[elementId, totalPoints, [[fixtureId, fixturePoints, statsInStatKeysOrder], ...]]`
- * -- see the file's own `format` field. This is a hand-compacted test
- * fixture, NOT the shape `getEventLive` returns, so it has to be converted
- * before `deriveGwStatsFromLive` (which expects the real `EventLive`
- * shape) can run on it -- `liveFileToEventLive` below does that. */
-type LiveFixtureRow = [number, number, number[]];
-type LiveElementRow = [number, number, LiveFixtureRow[]];
-interface LiveFile {
-  event: number;
-  statKeys: string[];
-  elements: LiveElementRow[];
-}
-
-const liveFiles: readonly LiveFile[] = [live1, live2, live3, live4] as unknown as LiveFile[];
-
-/** Converts one compact `live-N.json` file into the `EventLive` shape
- * `deriveGwStatsFromLive` consumes. Per-stat `points`/`points_modification`
- * are set to 0 rather than reconstructed from the file's per-fixture total:
- * `projectModelV2` never reads `GwStats.total_points` (it works entirely
- * off the raw per-stat counters -- minutes, goals, assists, etc), so
- * reconstructing an accurate points breakdown here would be extra
- * complexity spent on a field this backtest never uses. Actual scored
- * points are instead read directly off each file's own per-element
- * `totalPoints` (see `actualPointsByElement` below) -- the authoritative
- * number, not a value this test recomputes. */
-function liveFileToEventLive(file: LiveFile): EventLive {
-  return {
-    elements: file.elements.map(([id, , fixtureRows]) => ({
-      id,
-      stats: {},
-      explain: fixtureRows.map(([fixtureId, , statsArray]) => ({
-        fixture: fixtureId,
-        stats: file.statKeys.map((identifier, i): LiveExplainStat => ({
-          identifier,
-          value: statsArray[i] ?? 0,
-          points: 0,
-          points_modification: 0,
-        })),
-      })),
-    })),
-  };
-}
-
-/** Every element's actual scored points for one gameweek, straight off the
- * file's own per-element total -- see `liveFileToEventLive`'s doc for why
- * this is read here rather than summed from derived `GwStats` rows. */
-function actualPointsByElement(file: LiveFile): Map<number, number> {
-  return new Map(file.elements.map(([id, totalPoints]) => [id, totalPoints] as const));
-}
-
-/** Total minutes played by each element in one gameweek, derived the same
- * way production code would (via `deriveGwStatsFromLive`) so the
- * appearance filter below is consistent with what the real pipeline sees,
- * not a shortcut computed straight off the compact fixture format. */
-function minutesByElement(gwStats: readonly GwStats[]): Map<number, number> {
-  const minutes = new Map<number, number>();
-  for (const row of gwStats) {
-    minutes.set(row.element_id, (minutes.get(row.element_id) ?? 0) + row.minutes);
-  }
-  return minutes;
-}
-
-// ---------------------------------------------------------------------------
-// Part 3: the backtest itself
+// Part 2: the backtest itself
 // ---------------------------------------------------------------------------
 
 interface GwResult {
@@ -282,45 +152,12 @@ interface GwResult {
   baselineSpearman: number;
 }
 
-const liveFileByEvent = new Map<number, LiveFile>(liveFiles.map((f) => [f.event, f]));
-
 /** Runs model-v2 "as of just before gameweek `g`" and scores it against
  * gameweek `g`'s real results. Every input is restricted to what would
  * have been known before `g` kicked off (see the module doc for the two
  * exceptions that are unavoidable with a single post-GW4 snapshot). */
 function backtestGameweek(g: number): GwResult {
-  // Ratings fit on ONLY fixtures that finished before gw g.
-  const fixturesBeforeG = fixtures.filter((f) => f.event !== null && f.event < g);
-  const ratings = fitTeamRatings(fixturesBeforeG);
-
-  // This gameweek's fixtures, keyed by team -- same construction the
-  // `project` step in src/workflows/decideCommit.ts uses in production.
-  const fixturesThisGw = fixtures.filter((f) => f.event === g);
-  const fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
-  for (const f of fixturesThisGw) {
-    fixturesByTeam.set(f.team_h, { opponent: f.team_a, isHome: true });
-    fixturesByTeam.set(f.team_a, { opponent: f.team_h, isHome: false });
-  }
-
-  // Trailing stats from ONLY gameweeks < g.
-  const trailingStatsByElement = new Map<number, GwStats[]>();
-  for (let priorGw = 1; priorGw < g; priorGw++) {
-    const file = liveFileByEvent.get(priorGw);
-    if (!file) continue;
-    const rows = deriveGwStatsFromLive(liveFileToEventLive(file), priorGw);
-    for (const row of rows) {
-      const list = trailingStatsByElement.get(row.element_id);
-      if (list) list.push(row);
-      else trailingStatsByElement.set(row.element_id, [row]);
-    }
-  }
-
-  const projections = projectAll(elements, g, {
-    strategy: STRATEGY_MODEL_V2,
-    ratings,
-    fixturesByTeam,
-    trailingStatsByElement,
-  });
+  const { projections } = pointInTimeState(g);
   const xptsByElement = new Map(projections.map((p) => [p.element_id, p.xpts] as const));
 
   const targetFile = liveFileByEvent.get(g);

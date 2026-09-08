@@ -1,0 +1,37 @@
+### case: transfer-gw2
+### system
+You may make AT MOST ONE transfer this gameweek for a Fantasy Liga Portugal (Betclic) team, chosen only from the numbered candidate list below - every candidate is already legal and budget-checked, so you do not need to check budget or squad rules yourself. Each candidate's "gain" is the deterministic model's projected point gain over the planning horizon if made. A player's "news" field is a Portuguese injury/suspension note the deterministic gain does not fully capture - weigh it when a candidate's outgoing or incoming player is flagged. Pick the single best candidate, or elect not to transfer if none clearly helps. Respond using the JSON schema only: to make a transfer, echo that candidate's element_in and element_out ids exactly as given; to make no transfer, respond element_in=0 and element_out=0. Always include one short reason.
+### user
+Bank: EUR3.4m.
+Current squad (15 players):
+id|name|pos|club|cost|xpts|form|mins|news?
+102|Diogo Brasido|DEF|EPF|4.0|0.0|0.0|0
+106|Bimai|DEF|EPF|4.0|0.0|0.0|0
+117|Tunguliiadi|DEF|CFEA|3.9|0.0|0.0|0
+242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360
+249|William Gomes|MID|FCP|8.5|2.7|4.5|256
+275|André Silva|FWD|FCP|10.0|5.0|5.0|262
+293|Gonçalo Maia|MID|GVFC|4.4|0.0|0.0|0
+312|Afonso Assis|MID|MFC|4.4|0.0|0.0|0
+424|Vitinho|MID|CDSC|4.4|0.0|0.2|27
+435|Schjelderup|MID|SLB|10.4|1.6|1.0|84
+442|Pavlidis|FWD|SLB|12.1|4.8|11.0|227
+468|Jhon Durán|FWD|SLB|10.0|2.3|2.3|49
+510|Rui Silva|GK|SCP|6.0|3.7|2.5|360
+555|Rika|DEF|VSC|3.9|0.0|0.0|0
+615|Jordan Arnolin|DEF|EPF|4.0|2.4|0.3|14
+
+Candidate transfers:
+1. element_in=7 element_out=102 gain:+9.1 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 102|Diogo Brasido|DEF|EPF|4.0|0.0|0.0|0
+2. element_in=7 element_out=102 gain:+9.1 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 102|Diogo Brasido|DEF|EPF|4.0|0.0|0.0|0
+3. element_in=7 element_out=102 gain:+9.1 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 102|Diogo Brasido|DEF|EPF|4.0|0.0|0.0|0
+4. element_in=7 element_out=102 gain:+4.7 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 102|Diogo Brasido|DEF|EPF|4.0|0.0|0.0|0
+5. element_in=7 element_out=106 gain:+4.7 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 106|Bimai|DEF|EPF|4.0|0.0|0.0|0
+6. element_in=7 element_out=555 gain:+4.7 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 555|Rika|DEF|VSC|3.9|0.0|0.0|0
+7. element_in=7 element_out=117 gain:+4.7 | IN 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117 | OUT 117|Tunguliiadi|DEF|CFEA|3.9|0.0|0.0|0
+8. element_in=77 element_out=424 gain:+4.4 | IN 77|Liziero|MID|CDN|5.0|4.4|5.0|337 | OUT 424|Vitinho|MID|CDSC|4.4|0.0|0.2|27
+9. element_in=77 element_out=293 gain:+4.4 | IN 77|Liziero|MID|CDN|5.0|4.4|5.0|337 | OUT 293|Gonçalo Maia|MID|GVFC|4.4|0.0|0.0|0
+10. element_in=77 element_out=312 gain:+4.4 | IN 77|Liziero|MID|CDN|5.0|4.4|5.0|337 | OUT 312|Afonso Assis|MID|MFC|4.4|0.0|0.0|0
+11. element_in=75 element_out=424 gain:+4.1 | IN 75|Baeza|MID|CDN|5.0|4.1|3.2|282 | OUT 424|Vitinho|MID|CDSC|4.4|0.0|0.2|27
+12. element_in=75 element_out=293 gain:+4.1 | IN 75|Baeza|MID|CDN|5.0|4.1|3.2|282 | OUT 293|Gonçalo Maia|MID|GVFC|4.4|0.0|0.0|0
+13. element_in=75 element_out=312 gain:+4.1 | IN 75|Baeza|MID|CDN|5.0|4.1|3.2|282 | OUT 312|Afonso Assis|MID|MFC|4.4|0.0|0.0|0
