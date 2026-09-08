@@ -192,6 +192,38 @@ function playerListBlock(label: string, entries: ShortlistEntry[]): string {
     .join('\n')}`;
 }
 
+const SQUAD_POSITION_ORDER = [Position.GK, Position.DEF, Position.MID, Position.FWD] as const;
+
+/**
+ * The squad candidate list, split into one block per position, each labelled
+ * with the exact number to take from it.
+ *
+ * The flat list this replaced asked the model to hold four running position
+ * counters and a per-club counter while reading ~160 interleaved lines, with
+ * the composition rule ~5.5k tokens behind it in the system message. It never
+ * once managed it: across the 9 recorded squad attempts in the first live eval
+ * run, 0 produced a legal composition, over-picking GK (+7) and DEF (+8) and
+ * under-picking MID (-10) and FWD (-5). Blocking by position turns that into
+ * four independent "take the best N from this block" choices and puts each
+ * quota adjacent to the players it governs.
+ */
+function squadCandidateBlocks(shortlist: ShortlistEntry[]): string {
+  const byPosition = new Map<Position, ShortlistEntry[]>();
+  for (const position of SQUAD_POSITION_ORDER) byPosition.set(position, []);
+  for (const entry of shortlist) byPosition.get(entry.element.element_type)?.push(entry);
+
+  const blocks: string[] = [];
+  for (const position of SQUAD_POSITION_ORDER) {
+    const entries = byPosition.get(position) ?? [];
+    const code = PROMPT_POSITION_CODE[position];
+    blocks.push(
+      `## ${code} - choose exactly ${RULES.squadSelect[position]} of these ${entries.length}\n` +
+        `${PLAYER_LINE_HEADER}\n${entries.map(formatPlayerLine).join('\n')}`,
+    );
+  }
+  return blocks.join('\n\n');
+}
+
 /** Pick 15 from a shortlist. */
 export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
   const system =
@@ -200,7 +232,18 @@ export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
     `player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat ` +
     `an active injury or suspension as a strong reason to avoid that player. Respond using the ` +
     `JSON schema only: the 15 chosen ids and one short reason.`;
-  const user = playerListBlock('Shortlist', shortlist);
+  // The rules are restated after the candidates as well as before them: the
+  // list is long enough that the system message is thousands of tokens behind
+  // the point where the answer is generated.
+  const user =
+    `Candidates are grouped by position. Take exactly the stated number from each group.\n\n` +
+    `${squadCandidateBlocks(shortlist)}\n\n` +
+    `Check before answering: ${RULES.squadSize} ids in total and all distinct - ` +
+    SQUAD_POSITION_ORDER.map((p) => `${RULES.squadSelect[p]} ${PROMPT_POSITION_CODE[p]}`).join(
+      ', ',
+    ) +
+    `; at most ${RULES.teamLimit} ids sharing a club; total cost of the ${RULES.squadSize} ` +
+    `at most EUR${(RULES.budget / 10).toFixed(1)}m.`;
   return { system, user };
 }
 

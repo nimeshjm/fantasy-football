@@ -11,7 +11,7 @@
       },
       {
         "role": "user",
-        "content": "Owned squad (15 players):\nid|name|pos|club|cost|xpts|form|mins|news?\n7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117\n9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275\n13|Robinho|DEF|AVFC|4.5|3.7|3.0|360\n75|Baeza|MID|CDN|5.0|4.1|3.2|282\n77|Liziero|MID|CDN|5.0|4.4|5.0|337\n148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270\n187|Fontán|DEF|FCA|5.2|3.1|7.0|360\n242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360\n264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308\n405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295\n436|Prestianni|MID|SLB|8.2|4.7|8.7|250\n539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159\n544|Zalazar|MID|SCP|10.5|5.5|5.5|347\n618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0\n640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0"
+        "content": "Owned squad (15 players):\nid|name|pos|club|cost|xpts|form|mins|news?\n7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117\n9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275\n13|Robinho|DEF|AVFC|4.5|3.7|3.0|360\n75|Baeza|MID|CDN|5.0|4.1|3.2|282\n77|Liziero|MID|CDN|5.0|4.4|5.0|337\n148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270\n187|Fontán|DEF|FCA|5.2|3.1|7.0|360\n242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360\n264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308\n405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295\n436|Prestianni|MID|SLB|8.2|4.7|8.7|250\n539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159\n544|Zalazar|MID|SCP|10.5|5.5|5.5|347\n618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0\n640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0\n\nYour previous answer was invalid: formation - DEF: 2 starting, must be 3-5\nCorrect this and answer again."
       }
     ],
     "response_format": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [148, 618, 640, 13], \"captain\": 405, \"reason\": \"Maximising expected points\", \"starters\": [7, 9, 77, 187, 242, 264, 436, 544, 539, 75, 405], \"vice_captain\": 544}",
+          "content": "{\"bench\": [618, 148, 75, 13], \"captain\": 405, \"reason\": \"Maximising expected points\", \"starters\": [242, 7, 187, 77, 544, 436, 9, 539, 264, 405, 640], \"vice_captain\": 544}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888600,
+    "created": 1788888603,
     "ec_transfer_params": null,
-    "id": "chatcmpl-75d26c9f-5fc0-4bc6-9346-a15439f77ed0",
+    "id": "chatcmpl-b33a9146-a927-4a42-84e0-7189a1d770e2",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -92,38 +92,38 @@
     "prompt_token_ids": null,
     "response": {
       "bench": [
-        148,
         618,
-        640,
+        148,
+        75,
         13
       ],
       "captain": 405,
       "reason": "Maximising expected points",
       "starters": [
-        7,
-        9,
-        77,
-        187,
         242,
-        264,
-        436,
+        7,
+        187,
+        77,
         544,
+        436,
+        9,
         539,
-        75,
-        405
+        264,
+        405,
+        640
       ],
       "vice_captain": 544
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
-      "prompt_tokens": 649,
+      "prompt_tokens": 677,
       "completion_tokens": 79,
-      "total_tokens": 728,
+      "total_tokens": 756,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 33.4869384765625
+      "neurons": 34.23363494873047
     }
   }
 }

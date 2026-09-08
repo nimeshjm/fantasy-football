@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:20:31.240Z",
+    "capturedAt": "2026-09-08T17:30:33.449Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [168, 487, 565, 389], \"captain\": 442, \"reason\": \"Maximising expected points with Pavlidis as captain\", \"starters\": [62, 64, 355, 200, 264, 436, 405, 527, 458, 442, 168], \"vice_captain\": 405}",
+          "content": "{\"bench\": [168, 389, 487, 565], \"captain\": 442, \"reason\": \"Maximising expected points\", \"starters\": [62, 64, 200, 264, 355, 405, 436, 442, 458, 527, 62], \"vice_captain\": 405}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788888012,
+    "created": 1788888608,
     "ec_transfer_params": null,
-    "id": "chatcmpl-273e8aa6-166e-40d4-bd9d-48679a45273c",
+    "id": "chatcmpl-771e5eb6-5a40-4345-af77-b838cd51566e",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -93,24 +93,24 @@
     "response": {
       "bench": [
         168,
+        389,
         487,
-        565,
-        389
+        565
       ],
       "captain": 442,
-      "reason": "Maximising expected points with Pavlidis as captain",
+      "reason": "Maximising expected points",
       "starters": [
         62,
         64,
-        355,
         200,
         264,
-        436,
+        355,
         405,
-        527,
-        458,
+        436,
         442,
-        168
+        458,
+        527,
+        62
       ],
       "vice_captain": 405
     },
@@ -118,12 +118,12 @@
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 657,
-      "completion_tokens": 85,
-      "total_tokens": 742,
+      "completion_tokens": 79,
+      "total_tokens": 736,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 34.92911148071289
+      "neurons": 33.700279235839844
     }
   }
 }

@@ -2,167 +2,180 @@
 ### system
 You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: the 15 chosen ids and one short reason.
 ### user
-Shortlist (162 players):
+Candidates are grouped by position. Take exactly the stated number from each group.
+
+## GK - choose exactly 2 of these 20
+id|name|pos|club|cost|xpts|form|mins|news?
+27|Ewerton|GK|AVFC|4.0|3.9|2.5|360
+30|Ricardo Batista|GK|CPAC|4.0|0.0|0.0|0|news:Emprestado / On Loan
+54|André Gomes|GK|CPAC|4.5|3.5|2.2|360
+80|Marin|GK|CDN|4.5|3.6|5.0|360
+142|Dudu|GK|CFEA|4.5|0.0|0.0|0|news:Emprestado / On Loan
+148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270
+168|Matheus Mendes|GK|ALV|4.0|3.0|2.0|360
+242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360
+258|Diogo Fernandes|GK|FCP|4.0|0.0|0.0|0|news:Emprestado / On Loan
+332|Pawet Miszta|GK|RAFC|4.9|0.0|0.0|0|news:Intervenção Cirúrgica/Surgical Intervention
+355|Ennio van der Gouw|GK|RAFC|5.0|3.7|4.2|360
+383|Alfonso Pastor|GK|CSM|4.5|3.5|4.2|360
+472|Hornícek|GK|SCB|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+534|João Virgínia|GK|SCP|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+551|Charles|GK|VSC|4.9|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+612|Lucas Furtado|GK|VSC|4.0|2.9|0.0|0
+613|Cadu Neves|GK|CDSC|4.0|2.9|0.0|0
+616|Fletcher Lowe|GK|EPF|4.0|2.9|0.0|0
+626|Tomé Sousa|GK|CDSC|4.0|2.9|0.0|0
+646|Juan Soriano|GK|AVFC|4.5|3.3|0.0|0
+
+## DEF - choose exactly 5 of these 54
 id|name|pos|club|cost|xpts|form|mins|news?
 1|André Almeida|DEF|AVFC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 4|Igor Milioransa|DEF|AVFC|4.0|2.6|0.2|135
 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117
-9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275
 13|Robinho|DEF|AVFC|4.5|3.7|3.0|360
-19|Kahraman|MID|AVFC|5.5|3.7|3.5|283
-22|Simão Silva|MID|AVFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
-23|Tavares Silva|MID|AVFC|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-27|Ewerton|GK|AVFC|4.0|3.9|2.5|360
-30|Ricardo Batista|GK|CPAC|4.0|0.0|0.0|0|news:Emprestado / On Loan
 31|André Geraldes|DEF|CPAC|4.5|2.9|1.5|360
 32|João Goulart|DEF|CPAC|4.5|2.9|1.5|349
-36|Mohamed|MID|CPAC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-38|Svensson|FWD|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-41|Raúl Blanco|MID|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-42|Kelian Nsona|MID|CPAC|4.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 49|Afonso Vieira|DEF|CPAC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-50|Miguel Neves|FWD|CPAC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-54|André Gomes|GK|CPAC|4.5|3.5|2.2|360
-57|Henrique Araújo|FWD|CPAC|5.4|3.4|2.0|237
 61|José Gomes|DEF|CDN|4.9|0.0|0.0|0|news:Lesão Desconhecida/Unknown Injury
 63|Ulisses|DEF|CDN|4.0|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
 68|Alan Nuñez|DEF|CDN|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-71|Mootaz Nourani|MID|CDN|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-73|Pablo Ruan|MID|CDN|4.5|3.6|4.5|335
-74|Chucho Ramírez|FWD|CDN|7.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-75|Baeza|MID|CDN|5.0|4.1|3.2|282
-77|Liziero|MID|CDN|5.0|4.4|5.0|337
-80|Marin|GK|CDN|4.5|3.6|5.0|360
-85|Markus Jensen|MID|CDN|5.0|3.6|2.8|260
 88|Bacher|DEF|EPF|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-92|Orellana|MID|EPF|4.5|0.0|0.5|12|news:Transferido Definitivamente / Permanent Transfer
-93|Holsgrove|MID|EPF|5.3|0.0|0.2|45|news:Lesão Desconhecida / Unknown Injury
 112|Lanquetin|DEF|EPF|3.9|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 116|Dramé|DEF|CFEA|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-118|Rodrigo Pinho|FWD|CFEA|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-127|João Gastão|MID|CFEA|5.0|0.0|0.0|0|news:Emprestado / On Loan
-131|Leandro Antonetti|FWD|CFEA|4.5|4.2|6.3|265
 132|João Vale|DEF|CFEA|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-134|Onuoha|FWD|CFEA|4.5|0.0|0.0|0|news:Emprestado / On Loan
-137|van Hooijdonk|FWD|CFEA|4.9|0.0|0.7|3|news:Emprestado / On Loan
 138|Yahya Kalley|DEF|CFEA|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-140|Gbomadu|FWD|CFEA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-142|Dudu|GK|CFEA|4.5|0.0|0.0|0|news:Emprestado / On Loan
-145|Samu|MID|CFEA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270
 151|Baseya|DEF|ALV|4.0|2.7|1.8|360
-153|Junior Mendes|MID|ALV|4.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-156|Gian Cabezas|MID|ALV|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 158|Kauan|DEF|ALV|3.9|0.0|0.0|0|news:Emprestado / On Loan
 159|Bastien Meupiyou|DEF|ALV|4.4|1.5|0.5|172|news:Lesão Desconhecida / Unknown Injury
 160|Lamine Ndiaye|DEF|ALV|4.0|0.0|0.0|0|news:Emprestado / On Loan
-165|Sabit Abdulai|MID|ALV|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-168|Matheus Mendes|GK|ALV|4.0|3.0|2.0|360
 169|Julián Martínez|DEF|ALV|4.0|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
 172|João Douglas|DEF|ALV|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-179|Samy Merheg|FWD|ALV|4.9|3.3|1.0|87
 187|Fontán|DEF|FCA|5.2|3.1|7.0|360
 188|Rocha|DEF|FCA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-191|Puche|MID|FCA|4.9|0.0|0.0|0|news:Lesão no Joelho / Knee Injury
-201|Marozau|FWD|FCA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-202|Barbero|FWD|FCA|5.5|4.6|5.0|252
-206|Jansonas|FWD|FCA|4.5|0.0|0.0|0|news:Emprestado / On Loan
 217|Pedro Bondo|DEF|FCF|4.5|3.0|2.8|296
-222|van de Looi|MID|FCF|5.0|1.3|2.2|270|news:Lesão Desconhecida / Unknown Injury
 224|Renan Santana|DEF|FCF|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-231|Gonzalo Pastor|MID|FCF|4.5|0.0|0.0|0|news:Emprestado / On Loan
 238|van Breemen|DEF|FCF|4.5|3.0|5.2|360
-241|Koutsias|FWD|FCF|6.0|4.3|3.0|328
-242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360
 244|Zaidu|DEF|FCP|5.5|0.0|4.8|287|news:Lesão no Adutor Direito / Right Adductor Injury
-250|Eustáquio|MID|FCP|5.5|0.0|0.2|1|news:Transferido Definitivamente / Permanent Transfer
-254|R. Mora|MID|FCP|8.0|0.0|0.2|15|news:Transferido Definitivamente / Permanent Transfer
-255|Samu|FWD|FCP|11.5|0.0|0.0|0|news:Ruptura do Ligamento Cruzado / Cruciate Ligament Rupture
-256|Gül|FWD|FCP|8.5|0.0|1.2|91|news:Transferido Definitivamente / Permanent Transfer
-258|Diogo Fernandes|GK|FCP|4.0|0.0|0.0|0|news:Emprestado / On Loan
 261|Gabriel Brás|DEF|FCP|5.0|0.0|0.0|0|news:Emprestado / On Loan
-264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308
 265|Bednarek|DEF|FCP|6.6|1.6|5.2|312|news:Lesão Desconhecida / Unknown Injury
-270|André Miranda|MID|FCP|5.0|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-271|Oskar Pietuszewski|MID|FCP|9.4|0.0|0.0|0|news:Lesão muscular / Muscle Injury
-274|Vasco Sousa|MID|FCP|5.5|0.0|0.0|0|news:Fratura no Perónio / Fibula Fracture
-281|Bamba|MID|GVFC|4.4|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
 295|Arthur Tchaptchet|DEF|GVFC|4.0|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-304|Walace França|FWD|GVFC|5.4|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-314|Maranhão|FWD|MFC|4.9|1.4|0.3|15|news:Lesão Desconhecida / Unknown Injury
-323|Nile John|MID|MFC|4.5|3.3|3.3|228
-327|Duville-Parsemain|FWD|MFC|6.0|3.7|3.3|270
-332|Pawet Miszta|GK|RAFC|4.9|0.0|0.0|0|news:Intervenção Cirúrgica/Surgical Intervention
-339|Aguilera|MID|RAFC|5.0|0.0|0.0|0|news:Rotura de Ligamentos do Joelho/Knee Ligament Rupture
-349|Lorent Talla|MID|RAFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
-355|Ennio van der Gouw|GK|RAFC|5.0|3.7|4.2|360
-356|Ryan Guilherme|MID|RAFC|4.9|1.2|0.2|25|news:Lesão Desconhecida/Unknown Injury
 360|David Freitas|DEF|CSM|4.0|0.0|0.0|0|news:Emprestado / On Loan
 362|Madsen|DEF|CSM|4.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 365|Rodrigo Borges|DEF|CSM|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-367|Carlos Daniel|MID|CSM|5.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-371|Simo Bouzaidi|MID|CSM|5.5|1.3|3.2|218|news:Lesão Desconhecida / Unknown Injury
-377|Dominguez|MID|CSM|4.9|0.0|0.2|1|news:Lesão Muscular / Muscle Injury
-380|Raphael Guzzo|MID|CSM|4.6|3.5|4.5|328
-383|Alfonso Pastor|GK|CSM|4.5|3.5|4.2|360
 385|Nathanael Ogbeta|DEF|CSM|4.9|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
 387|Tomás Tavares|DEF|CSM|4.4|1.2|0.2|13|news:Lesão Desconhecida / Unknown Injury
 389|Diogo Calila|DEF|CDSC|4.5|2.9|5.2|354
 390|Frederico Venâncio|DEF|CDSC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 397|MT|DEF|CDSC|4.9|0.0|0.0|0|news:Lesão no Joelho / Knee Injuty
-399|João Costa|FWD|CDSC|4.9|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
 402|Rodrigo Mendes|DEF|CDSC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295
-406|Andrey|MID|CDSC|4.4|0.0|0.0|0|news:Emprestado / On Loan
 409|Alysson|DEF|CDSC|3.9|0.0|0.0|0|news:Emprestado / On Loan
 410|Douglas Borel|DEF|CDSC|4.0|0.0|0.0|0|news:Emprestado / On Loan
 413|Kauan|DEF|CDSC|4.0|0.0|0.0|0|news:Emprestado / On Loan
+433|António Silva|DEF|SLB|6.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+444|Dedic|DEF|SLB|6.0|0.0|0.3|8|news:Transferido Definitivamente / Permanent Transfer
+476|Niakaté|DEF|SCB|5.0|0.0|0.0|0|news:Ruptura do Tendão de Aquiles / Achilles Tendon Rupture
+477|Arrey-Mbi|DEF|SCB|4.9|0.0|0.5|41|news:Lesão Muscular / Muscle Injury
+489|Leonardo Lelo|DEF|SCB|5.5|0.0|0.0|0|news:Emprestado / On Loan
+515|Diomande|DEF|SCP|6.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+531|Nuno Santos|DEF|SCP|5.5|0.0|0.0|0|news:Lesão Muscular / Muscle Injury
+538|Vagiannidis|DEF|SCP|5.4|1.6|0.8|159|news:Lesão Desconhecida / Unknown Injury
+618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0
+624|Caike|DEF|RAFC|4.0|2.8|0.3|4
+630|Kokolo|DEF|CDN|4.5|2.9|1.7|111
+640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0
+
+## MID - choose exactly 5 of these 58
+id|name|pos|club|cost|xpts|form|mins|news?
+19|Kahraman|MID|AVFC|5.5|3.7|3.5|283
+22|Simão Silva|MID|AVFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
+23|Tavares Silva|MID|AVFC|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+36|Mohamed|MID|CPAC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+41|Raúl Blanco|MID|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+42|Kelian Nsona|MID|CPAC|4.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+71|Mootaz Nourani|MID|CDN|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+73|Pablo Ruan|MID|CDN|4.5|3.6|4.5|335
+75|Baeza|MID|CDN|5.0|4.1|3.2|282
+77|Liziero|MID|CDN|5.0|4.4|5.0|337
+85|Markus Jensen|MID|CDN|5.0|3.6|2.8|260
+92|Orellana|MID|EPF|4.5|0.0|0.5|12|news:Transferido Definitivamente / Permanent Transfer
+93|Holsgrove|MID|EPF|5.3|0.0|0.2|45|news:Lesão Desconhecida / Unknown Injury
+127|João Gastão|MID|CFEA|5.0|0.0|0.0|0|news:Emprestado / On Loan
+145|Samu|MID|CFEA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+153|Junior Mendes|MID|ALV|4.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+156|Gian Cabezas|MID|ALV|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+165|Sabit Abdulai|MID|ALV|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+191|Puche|MID|FCA|4.9|0.0|0.0|0|news:Lesão no Joelho / Knee Injury
+222|van de Looi|MID|FCF|5.0|1.3|2.2|270|news:Lesão Desconhecida / Unknown Injury
+231|Gonzalo Pastor|MID|FCF|4.5|0.0|0.0|0|news:Emprestado / On Loan
+250|Eustáquio|MID|FCP|5.5|0.0|0.2|1|news:Transferido Definitivamente / Permanent Transfer
+254|R. Mora|MID|FCP|8.0|0.0|0.2|15|news:Transferido Definitivamente / Permanent Transfer
+264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308
+270|André Miranda|MID|FCP|5.0|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+271|Oskar Pietuszewski|MID|FCP|9.4|0.0|0.0|0|news:Lesão muscular / Muscle Injury
+274|Vasco Sousa|MID|FCP|5.5|0.0|0.0|0|news:Fratura no Perónio / Fibula Fracture
+281|Bamba|MID|GVFC|4.4|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+323|Nile John|MID|MFC|4.5|3.3|3.3|228
+339|Aguilera|MID|RAFC|5.0|0.0|0.0|0|news:Rotura de Ligamentos do Joelho/Knee Ligament Rupture
+349|Lorent Talla|MID|RAFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
+356|Ryan Guilherme|MID|RAFC|4.9|1.2|0.2|25|news:Lesão Desconhecida/Unknown Injury
+367|Carlos Daniel|MID|CSM|5.4|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+371|Simo Bouzaidi|MID|CSM|5.5|1.3|3.2|218|news:Lesão Desconhecida / Unknown Injury
+377|Dominguez|MID|CSM|4.9|0.0|0.2|1|news:Lesão Muscular / Muscle Injury
+380|Raphael Guzzo|MID|CSM|4.6|3.5|4.5|328
+406|Andrey|MID|CDSC|4.4|0.0|0.0|0|news:Emprestado / On Loan
 415|Bruno Almeida|MID|CDSC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 418|Mateus Sarará|MID|CDSC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 420|Tiago Queiroz|MID|CDSC|4.4|0.0|0.0|0|news:Emprestado / On Loan
-433|António Silva|DEF|SLB|6.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 436|Prestianni|MID|SLB|8.2|4.7|8.7|250
-444|Dedic|DEF|SLB|6.0|0.0|0.3|8|news:Transferido Definitivamente / Permanent Transfer
-455|Ivanović|FWD|SLB|9.0|0.0|0.0|0|news:Emprestado / On Loan
 471|Tiago Gouveia|MID|SLB|7.0|0.0|0.0|0|news:Emprestado / On Loan
-472|Hornícek|GK|SCB|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-476|Niakaté|DEF|SCB|5.0|0.0|0.0|0|news:Ruptura do Tendão de Aquiles / Achilles Tendon Rupture
-477|Arrey-Mbi|DEF|SCB|4.9|0.0|0.5|41|news:Lesão Muscular / Muscle Injury
 480|Ricardo Horta|MID|SCB|9.9|0.0|0.5|57|news:Lesão Muscular / Muscle Injury
 482|Gorby|MID|SCB|5.4|0.0|1.0|90|news:Lesão Muscular / Muscle Injury
-489|Leonardo Lelo|DEF|SCB|5.5|0.0|0.0|0|news:Emprestado / On Loan
 491|Yanis da Rocha|MID|SCB|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 499|João Marques|MID|SCB|4.9|0.0|0.0|0|news:Emprestado / On Loan
-506|Wind|FWD|SCB|8.0|0.0|0.0|0|news:Lesão Desconhecida/Unknown Injury
-515|Diomande|DEF|SCP|6.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 525|Bragança|MID|SCP|5.9|0.0|0.0|0|news:Emprestado / On Loan
 528|João Simões|MID|SCP|5.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
-531|Nuno Santos|DEF|SCP|5.5|0.0|0.0|0|news:Lesão Muscular / Muscle Injury
 532|Pote|MID|SCP|9.8|0.0|0.0|0|news:Emprestado / On Loan
-534|João Virgínia|GK|SCP|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 535|Kochorashvili|MID|SCP|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-538|Vagiannidis|DEF|SCP|5.4|1.6|0.8|159|news:Lesão Desconhecida / Unknown Injury
-539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159
 543|S. Faye|MID|SCP|7.0|0.0|0.0|0|news:Emprestado / On Loan
 544|Zalazar|MID|SCP|10.5|5.5|5.5|347
-551|Charles|GK|VSC|4.9|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
-563|Michel|FWD|VSC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 611|Hiago Santos|MID|CDSC|4.5|0.0|0.0|0|news:Emprestado / On Loan
-612|Lucas Furtado|GK|VSC|4.0|2.9|0.0|0
-613|Cadu Neves|GK|CDSC|4.0|2.9|0.0|0
-616|Fletcher Lowe|GK|EPF|4.0|2.9|0.0|0
-617|Costinha|FWD|FCA|4.5|4.0|0.0|0
-618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0
-620|Eduardo Ferreira|FWD|FCP|5.0|3.5|0.0|0
-624|Caike|DEF|RAFC|4.0|2.8|0.3|4
-626|Tomé Sousa|GK|CDSC|4.0|2.9|0.0|0
 629|JP|MID|CPAC|4.5|2.9|0.0|0
-630|Kokolo|DEF|CDN|4.5|2.9|1.7|111
 632|Aymen Zouin|MID|CPAC|4.5|2.9|0.0|0
-634|Paulinho|FWD|AVFC|5.5|4.2|0.0|0
-640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0
 645|Valery Fernández|MID|AVFC|4.5|3.1|0.0|0
-646|Juan Soriano|GK|AVFC|4.5|3.3|0.0|0
 649|Pauwels|MID|CPAC|4.5|2.9|2.0|12
-654|Evans Maurin|FWD|CPAC|4.5|3.8|0.0|0
 655|Min-kyu Song|MID|CDN|4.5|3.0|0.0|0
+
+## FWD - choose exactly 3 of these 30
+id|name|pos|club|cost|xpts|form|mins|news?
+9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275
+38|Svensson|FWD|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+50|Miguel Neves|FWD|CPAC|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+57|Henrique Araújo|FWD|CPAC|5.4|3.4|2.0|237
+74|Chucho Ramírez|FWD|CDN|7.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+118|Rodrigo Pinho|FWD|CFEA|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+131|Leandro Antonetti|FWD|CFEA|4.5|4.2|6.3|265
+134|Onuoha|FWD|CFEA|4.5|0.0|0.0|0|news:Emprestado / On Loan
+137|van Hooijdonk|FWD|CFEA|4.9|0.0|0.7|3|news:Emprestado / On Loan
+140|Gbomadu|FWD|CFEA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+179|Samy Merheg|FWD|ALV|4.9|3.3|1.0|87
+201|Marozau|FWD|FCA|4.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+202|Barbero|FWD|FCA|5.5|4.6|5.0|252
+206|Jansonas|FWD|FCA|4.5|0.0|0.0|0|news:Emprestado / On Loan
+241|Koutsias|FWD|FCF|6.0|4.3|3.0|328
+255|Samu|FWD|FCP|11.5|0.0|0.0|0|news:Ruptura do Ligamento Cruzado / Cruciate Ligament Rupture
+256|Gül|FWD|FCP|8.5|0.0|1.2|91|news:Transferido Definitivamente / Permanent Transfer
+304|Walace França|FWD|GVFC|5.4|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+314|Maranhão|FWD|MFC|4.9|1.4|0.3|15|news:Lesão Desconhecida / Unknown Injury
+327|Duville-Parsemain|FWD|MFC|6.0|3.7|3.3|270
+399|João Costa|FWD|CDSC|4.9|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
+405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295
+455|Ivanović|FWD|SLB|9.0|0.0|0.0|0|news:Emprestado / On Loan
+506|Wind|FWD|SCB|8.0|0.0|0.0|0|news:Lesão Desconhecida/Unknown Injury
+539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159
+563|Michel|FWD|VSC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
+617|Costinha|FWD|FCA|4.5|4.0|0.0|0
+620|Eduardo Ferreira|FWD|FCP|5.0|3.5|0.0|0
+634|Paulinho|FWD|AVFC|5.5|4.2|0.0|0
+654|Evans Maurin|FWD|CPAC|4.5|3.8|0.0|0
+
+Check before answering: 15 ids in total and all distinct - 2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 ids sharing a club; total cost of the 15 at most EUR100.0m.
