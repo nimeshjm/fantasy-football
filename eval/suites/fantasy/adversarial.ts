@@ -5,7 +5,7 @@
  * blind argmax (captaincy, near-tied projections). No `truth` — synthetic,
  * there is no realized outcome.
  */
-import { Position, type Element } from '../../../src/types';
+import { Position, type Element, type Pick } from '../../../src/types';
 import type { ShortlistEntry } from '../../../src/ai/prompts';
 import type { EvalCase, LineupCaseInput } from '../../core/types';
 
@@ -60,6 +60,10 @@ const SQUAD_SPEC: { id: number; position: Position; team: number; cost: number }
   { id: 15, position: Position.FWD, team: 8, cost: 70 },
 ];
 
+/** These cases are synthetic and belong to no real gameweek; the value only
+ * has to be consistent inside a case, since nothing reads it. */
+const SYNTHETIC_EVENT = 0;
+
 type ElementOverrides = Record<number, Partial<Element>>;
 
 function buildOwned(
@@ -86,11 +90,28 @@ function buildCase(
   overrides: ElementOverrides = {},
 ): EvalCase<LineupCaseInput> {
   const owned = buildOwned(xpts, overrides);
+  const ownedPicks: Pick[] = owned.map((o, i) => ({
+    element: o.element.id,
+    position: i + 1,
+    is_captain: false,
+    is_vice_captain: false,
+  }));
   return {
     id,
-    taskId: 'lineup',
+    taskId: 'fantasy/lineup',
     tags: { suite: 'fantasy', kind: 'lineup', origin: 'adversarial', probe },
-    input: { kind: 'lineup', owned, elements: owned.map((o) => o.element) },
+    input: {
+      kind: 'lineup',
+      owned,
+      elements: owned.map((o) => o.element),
+      projections: owned.map((o) => ({
+        element_id: o.element.id,
+        event: SYNTHETIC_EVENT,
+        xmins: 90,
+        xpts: o.xpts,
+      })),
+      ownedPicks,
+    },
   };
 }
 

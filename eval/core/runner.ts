@@ -154,13 +154,13 @@ export async function runSuite(opts: RunSuiteOptions): Promise<RunSuiteResult> {
   for (const task of opts.tasks) {
     for (const c of task.cases()) {
       for (let repeat = 0; repeat < repeats; repeat++) {
-        const needed = task.worstCaseNeurons(c);
+        const needed = task.attemptCeilingNeurons(c);
         const left = await opts.budget.remaining();
         if (left < needed) {
           skipped.push({
             caseId: c.id,
             repeat,
-            reason: `budget: ${left.toFixed(1)} Neurons left, trial can cost up to ${needed.toFixed(1)}`,
+            reason: `budget: ${left.toFixed(1)} Neurons left, next call can cost up to ${needed.toFixed(1)}`,
           });
           continue;
         }
