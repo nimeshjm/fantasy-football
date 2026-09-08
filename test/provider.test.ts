@@ -207,3 +207,233 @@ describe('WorkersAiProvider.complete() against recorded envelopes', () => {
     expect(result).toEqual({ ok: false, error: 'workers-ai returned no parsable response text' });
   });
 });
+
+// ---------------------------------------------------------------------------
+// Issue #28: fall back to choices[0].message.content when `response` is
+// absent, empty, or unrecognisable - and never throw doing so.
+// ---------------------------------------------------------------------------
+
+/** Loose envelope shape for the tests below, which deliberately mutate a
+ * cloned fixture into shapes the real Workers AI response never took (a
+ * deleted `response`, a malformed `choices`, an injected `refusal`) to
+ * exercise paths the five recorded captures never touch. `structuredClone`
+ * is required, not optional: the fixtures are imported once per test file
+ * (`import jsonSchemaSquad from './fixtures/...json'`), so mutating
+ * `fixture.envelope` directly would corrupt the single shared object other
+ * `describe` blocks in this file assert against (notably the "recorded
+ * envelope contract" block, which checks `response` is present on every
+ * fixture). */
+type Envelope = Record<string, unknown>;
+
+function cloneEnvelope(envelope: unknown): Envelope {
+  return structuredClone(envelope) as Envelope;
+}
+
+function firstChoiceOf(envelope: Envelope): Record<string, unknown> {
+  return (envelope.choices as unknown[])[0] as Record<string, unknown>;
+}
+
+function messageOf(envelope: Envelope): Record<string, unknown> {
+  return firstChoiceOf(envelope).message as Record<string, unknown>;
+}
+
+describe('extractResponseText falls back to choices[0].message.content (issue #28)', () => {
+  it('returns the fixture answer from choices[0].message.content when response is deleted', () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    delete envelope.response;
+
+    const text = extractResponseTextForTest(envelope);
+
+    expect(text).not.toBeNull();
+    expect(text).toBe(messageOf(envelope).content);
+    // The fallback text is the SAME answer response would have carried -
+    // choices[0].message.content is the raw string, response its parsed form.
+    expect(JSON.parse(text!)).toEqual(jsonSchemaSquad.envelope.response);
+  });
+
+  it('still prefers response when present, even if choices[0].message.content disagrees', () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    // Mutate content to something response does NOT match, so a test that
+    // passed only because the two happen to agree cannot pass here - this
+    // proves the fallback isn't silently taking over when response is fine.
+    messageOf(envelope).content = '{"picks":[999],"reason":"not the real answer"}';
+
+    const text = extractResponseTextForTest(envelope);
+
+    expect(JSON.parse(text!)).toEqual(jsonSchemaSquad.envelope.response);
+    expect(text).not.toBe(messageOf(envelope).content);
+  });
+
+  it('falls back for plain-text-prose too, where response is a string rather than an object', () => {
+    const envelope = cloneEnvelope(plainTextProse.envelope);
+    delete envelope.response;
+
+    const text = extractResponseTextForTest(envelope);
+
+    expect(text).toBe(messageOf(envelope).content);
+    expect(text).toBe(plainTextProse.envelope.response);
+  });
+
+  it('falls back when response is an empty string', () => {
+    const envelope = cloneEnvelope(plainTextProse.envelope);
+    envelope.response = '';
+
+    expect(extractResponseTextForTest(envelope)).toBe(messageOf(envelope).content);
+  });
+
+  it('falls back when response is neither a string nor an object (e.g. a number)', () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    envelope.response = 42;
+
+    const text = extractResponseTextForTest(envelope);
+
+    expect(text).toBe(messageOf(envelope).content);
+  });
+
+  it.each<[string, (envelope: Envelope) => void]>([
+    ['choices missing entirely', (e) => delete e.choices],
+    ['choices is an empty array', (e) => (e.choices = [])],
+    ['choices is not an array', (e) => (e.choices = { not: 'an array' })],
+    ['choices[0] has no message', (e) => (e.choices = [{ finish_reason: 'stop' }])],
+    [
+      'choices[0].message.content is not a string',
+      (e) => (e.choices = [{ message: { content: 12345, refusal: null } }]),
+    ],
+  ])('returns null, never throws, when %s (and response is also absent)', (_case, mutate) => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    delete envelope.response;
+    mutate(envelope);
+
+    expect(() => extractResponseTextForTest(envelope)).not.toThrow();
+    expect(extractResponseTextForTest(envelope)).toBeNull();
+  });
+
+  it('WorkersAiProvider.complete() returns {ok: true} via the fallback when response is absent', async () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    delete envelope.response;
+    const ai = new StubAi(envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result.ok).toBe(true);
+    if (!result.ok) throw new Error('unreachable');
+    expect(JSON.parse(result.text)).toEqual(jsonSchemaSquad.envelope.response);
+  });
+
+  it('WorkersAiProvider.complete() returns {ok: false, error} rather than throwing on a malformed envelope', async () => {
+    const ai = new StubAi({ choices: 'not-an-array' });
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result).toEqual({ ok: false, error: 'workers-ai returned no parsable response text' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #28: a refusal and a truncation are distinct events from an
+// unparsable envelope, and from each other.
+// ---------------------------------------------------------------------------
+
+describe('WorkersAiProvider.complete() surfaces refusal and truncation distinctly (issue #28)', () => {
+  it('a non-null refusal produces its own error string, not the generic "no parsable response text"', async () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    // None of the five captures ever recorded a non-null refusal (all are
+    // `refusal: null`) - this is reachable only by construction, mirroring
+    // the "JSON Mode couldn't be met" refusal documented in this file's
+    // header comment.
+    messageOf(envelope).refusal = "JSON Mode couldn't be met";
+    const ai = new StubAi(envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result).toEqual({
+      ok: false,
+      error: "workers-ai refused the request: JSON Mode couldn't be met",
+    });
+  });
+
+  it('a refusal is reported even when the envelope also carries a usable response', async () => {
+    // Distinguish "refusal happened to co-occur with extractable text" from
+    // "the fallback silently swallowed the refusal" - complete() must check
+    // refusal before ever calling extractResponseText.
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    messageOf(envelope).refusal = 'declined';
+    expect(extractResponseTextForTest(envelope)).not.toBeNull(); // text WOULD extract
+
+    const ai = new StubAi(envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result).toEqual({ ok: false, error: 'workers-ai refused the request: declined' });
+  });
+
+  it('finish_reason "length" produces its own error string, even when text would have extracted', async () => {
+    const envelope = cloneEnvelope(jsonSchemaSquad.envelope);
+    // None of the five captures ever recorded anything but "stop" - this is
+    // reachable only by construction, mirroring the truncation this file's
+    // header comment warns `max_tokens` does not fully prevent.
+    firstChoiceOf(envelope).finish_reason = 'length';
+    expect(extractResponseTextForTest(envelope)).not.toBeNull(); // text WOULD extract
+
+    const ai = new StubAi(envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    const result = await provider.complete({
+      messages: [{ role: 'user', content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) throw new Error('unreachable');
+    expect(result.error).toMatch(/truncat/i);
+    expect(result.error).toContain('length');
+    expect(result.error).not.toBe('workers-ai returned no parsable response text');
+  });
+
+  it('refusal, truncation, and the generic no-parsable-text error are three distinct strings', async () => {
+    const refused = cloneEnvelope(jsonSchemaSquad.envelope);
+    messageOf(refused).refusal = 'nope';
+
+    const truncated = cloneEnvelope(jsonSchemaSquad.envelope);
+    firstChoiceOf(truncated).finish_reason = 'length';
+
+    const unparsable = { choices: [] };
+
+    const ai = new StubAi([refused, truncated, unparsable]);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+    const request = {
+      messages: [{ role: 'user' as const, content: 'x' }],
+      jsonSchema: SQUAD_SCHEMA,
+      maxTokens: 400,
+    };
+
+    const results = [
+      await provider.complete(request),
+      await provider.complete(request),
+      await provider.complete(request),
+    ];
+
+    const errors = results.map((r) => (r.ok ? null : r.error));
+    expect(new Set(errors).size).toBe(3);
+  });
+});

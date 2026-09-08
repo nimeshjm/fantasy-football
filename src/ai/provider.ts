@@ -98,6 +98,44 @@ export class WorkersAiProvider implements LlmProvider {
         } as Record<string, unknown>,
         {},
       );
+
+      // A refusal and a truncation are both real signals about THIS call,
+      // not evidence the envelope is malformed — surface each as its own
+      // legible `error` string rather than folding them into the generic
+      // "no parsable response text" below (issue #28). Checked in this
+      // order, and checked ahead of extraction:
+      //  1. A refusal is the model declining outright. It is a real answer
+      //     about the request (e.g. "JSON Mode couldn't be met" for a
+      //     complex schema), and retrying the identical prompt is unlikely
+      //     to change that — so it is reported even if a refusal message
+      //     somehow ALSO carried usable text.
+      //  2. A `finish_reason: 'length'` means the model hit `maxTokens`
+      //     before finishing. Every answer this project asks for must
+      //     `JSON.parse`, so a body cut off mid-JSON is effectively never
+      //     valid JSON by accident — this is reported even when `response`
+      //     or `choices[0].message.content` happens to extract a string,
+      //     because returning `{ ok: true }` with truncated JSON is exactly
+      //     the illegible failure #15 was about (it would pass this
+      //     function only to blow up in validate.ts with no hint why).
+      // Neither case is in the five recorded fixtures (all captured
+      // `refusal: null`, `finish_reason: "stop"`) — both are reachable only
+      // by construction in tests.
+      const message = firstChoiceMessage(result);
+      const refusal = message?.refusal;
+      if (refusal !== null && refusal !== undefined) {
+        const detail = typeof refusal === 'string' ? refusal : safeStringify(refusal);
+        return { ok: false, error: `workers-ai refused the request: ${capLength(detail, 300)}` };
+      }
+
+      const finishReason = firstChoice(result)?.finish_reason;
+      if (finishReason === 'length') {
+        return {
+          ok: false,
+          error:
+            'workers-ai truncated the response at max_tokens (finish_reason: "length") - answer likely cut off mid-JSON',
+        };
+      }
+
       const text = extractResponseText(result);
       if (text === null) {
         return { ok: false, error: 'workers-ai returned no parsable response text' };
@@ -139,27 +177,100 @@ export class WorkersAiProvider implements LlmProvider {
  * requested.** Mode correlates with the outcome (JSON mode all but forces a
  * JSON answer) but does not cause it.
  *
- * The implementation below already handles both recorded shapes correctly —
- * this correction is to the explanation, not the code. Callers want text
- * they can `JSON.parse`, so an object response is re-serialised rather than
- * returned as-is.
+ * The implementation below already handled both recorded shapes correctly —
+ * that part of the correction was to the explanation, not the code. Callers
+ * want text they can `JSON.parse`, so an object response is re-serialised
+ * rather than returned as-is.
+ *
+ * Issue #28 added the part that follows: `response` is the runtime's
+ * convenience field, layered on top of the actual answer, which every one of
+ * the five captures also carries verbatim at `choices[0].message.content` (a
+ * raw string, whether or not it happens to parse as JSON). Nothing in the
+ * five captures ever needed it — `response` was populated in all five — but
+ * a `null` here becomes `workers-ai returned no parsable response text` in
+ * `complete()`, which issue #15 already proved is indistinguishable from a
+ * real model failure: the call gets retried, then the decision silently
+ * degrades to `deterministic-fallback`, after the Neurons are spent. If
+ * Workers AI ever stops populating `response` — or populates it with
+ * something this function doesn't recognise — falling back to
+ * `choices[0].message.content` turns that into a non-event instead. Preferred
+ * order is unchanged: `response` first (it is already the parsed, convenient
+ * shape), `choices[0].message.content` only when `response` is absent, an
+ * empty string, or neither a string nor an object.
+ *
+ * `choices` is otherwise-untrusted shape from an external service, so every
+ * step here is defensive — missing `choices`, an empty or non-array
+ * `choices`, a missing `message`, or a non-string `content` all fall through
+ * to `null` rather than throwing. This function never throws.
+ *
+ * Two other fields on `choices[0]` matter but are NOT this function's job:
+ * `message.refusal` (non-null in a real refusal — a model declining the
+ * request outright, e.g. "JSON Mode couldn't be met" — a genuine answer
+ * about the request, not a parsing failure) and `finish_reason` (`'length'`
+ * means the answer was truncated at `max_tokens`, per the header comment on
+ * this file, likely mid-JSON). Both are `null` / `"stop"` in all five
+ * captures. `WorkersAiProvider.complete()` checks them directly, ahead of
+ * calling this function, and reports each as its own `error` string rather
+ * than letting a truncated answer either extract successfully here (a
+ * partial-JSON `text` that would then fail validation with no clue why) or
+ * fall into the generic no-parsable-text message.
  */
 function extractResponseText(result: unknown): string | null {
   if (!result || typeof result !== 'object') return null;
   const response = (result as Record<string, unknown>).response;
 
   if (typeof response === 'string') {
-    return response.length > 0 ? response : null;
-  }
-  // JSON mode: already-parsed object (or array) straight from the runtime.
-  if (response && typeof response === 'object') {
+    if (response.length > 0) return response;
+  } else if (response && typeof response === 'object') {
+    // JSON mode: already-parsed object (or array) straight from the runtime.
     try {
       return JSON.stringify(response);
     } catch {
-      return null;
+      // Fall through to the choices[0].message.content fallback below.
     }
   }
-  return null;
+
+  const content = firstChoiceMessage(result)?.content;
+  return typeof content === 'string' && content.length > 0 ? content : null;
+}
+
+/** Defensively pulls `choices[0]` out of a Workers AI envelope. `choices` may
+ * be absent, empty, or not an array on a malformed/unexpected envelope —
+ * returns `null` rather than throwing for any of those. Shared by
+ * `extractResponseText` (for `message.content`) and `complete()` (for
+ * `message.refusal` and `finish_reason`), so both read the same shape the
+ * same defensive way. */
+function firstChoice(result: unknown): Record<string, unknown> | null {
+  if (!result || typeof result !== 'object') return null;
+  const choices = (result as Record<string, unknown>).choices;
+  if (!Array.isArray(choices) || choices.length === 0) return null;
+  const first = choices[0];
+  return first && typeof first === 'object' ? (first as Record<string, unknown>) : null;
+}
+
+/** Defensively pulls `choices[0].message` out of a Workers AI envelope;
+ * `null` if `choices[0]` is missing or `message` isn't an object. */
+function firstChoiceMessage(result: unknown): Record<string, unknown> | null {
+  const message = firstChoice(result)?.message;
+  return message && typeof message === 'object' ? (message as Record<string, unknown>) : null;
+}
+
+/** Caps a string at `max` characters for embedding in an `error` string, so
+ * an unexpectedly long refusal message can't blow up the `ai_calls` audit
+ * row. */
+function capLength(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max)}…` : value;
+}
+
+/** Stringifies a non-string `refusal` value defensively — Workers AI's
+ * documented shape is a string, but this project doesn't control the
+ * envelope, and `error` must never throw building its own message. */
+function safeStringify(value: unknown): string {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 /**
