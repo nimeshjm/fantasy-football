@@ -10,13 +10,20 @@ import {
   getSetCookies,
   ApiResponseError,
 } from '../src/api/client';
-import { getEventLive, getFixtures, getMyTeam, updateMyTeam } from '../src/api/endpoints';
+import {
+  getEventLive,
+  getFixtures,
+  getMyTeam,
+  getRegions,
+  updateMyTeam,
+} from '../src/api/endpoints';
 import {
   checkSessionHealth,
   getSession,
   type SessionRecord,
   type SessionStore,
 } from '../src/api/session';
+import regionsFixture from './fixtures/regions.json';
 
 const BASE_URL = 'https://fantasy.ligaportugal.pt/api';
 
@@ -265,6 +272,54 @@ describe('FantasyApiClient', () => {
 
     expect(maxInFlight).toBe(1);
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe('getRegions', () => {
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal('fetch', fetchMock);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('hits regions/ with no auth', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, regionsFixture));
+
+    const client = new FantasyApiClient(BASE_URL);
+    await getRegions(client);
+
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'https://fantasy.ligaportugal.pt/api/regions/',
+      expect.anything(),
+    );
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect((init.headers as Record<string, string> | undefined)?.['Cookie']).toBeUndefined();
+  });
+
+  it('parses the real 242-country regions/ response, id/name/iso shape intact', async () => {
+    fetchMock.mockResolvedValue(jsonResponse(200, regionsFixture));
+
+    const client = new FantasyApiClient(BASE_URL);
+    const regions = await getRegions(client);
+
+    // A country list, NOT Portuguese administrative regions -- 242 rows,
+    // ids 1..242.
+    expect(regions).toHaveLength(242);
+    expect(regions.every((r) => typeof r.id === 'number' && typeof r.name === 'string')).toBe(true);
+
+    const portugal = regions.find((r) => r.id === 171);
+    expect(portugal).toEqual({
+      id: 171,
+      name: 'Portugal',
+      code: 171,
+      iso_code_short: 'PT',
+      iso_code_long: 'PRT',
+    });
   });
 });
 

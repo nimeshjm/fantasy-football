@@ -37,7 +37,17 @@
     "MAX_TRANSFERS_PER_GW": "1",
     "SQUAD_MARGIN": "0.10",
     "LINEUP_ABS_FLOOR": "8",
-    "NEURON_DAILY_CAP": "8000"
+    "NEURON_DAILY_CAP": "8000",
+
+    // entry-create/ identity for a FUTURE squad creation only (issue #16).
+    // Entry 35088 already exists and keeps its own name/favourite_team -- it
+    // is NOT retroactively changed by these vars. Defaults mirror
+    // src/env.ts's DEFAULT_ENTRY_*: 2 is SL Benfica (a deliberate owner
+    // choice, not the scaffolding value of 1), 171 is Portugal out of the
+    // 242-country `regions/` list.
+    "ENTRY_NAME": "Fantasy Agent",
+    "ENTRY_FAVOURITE_TEAM": "2",
+    "ENTRY_REGION": "171"
   },
 
   "observability": { "enabled": true }

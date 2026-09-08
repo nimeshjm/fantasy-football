@@ -57,10 +57,12 @@ import {
   createEntry as apiCreateEntry,
   getMe,
   getMyTeam,
+  getRegions as apiGetRegions,
   postTransfers as apiPostTransfers,
   updateMyTeam as apiUpdateMyTeam,
   type EntryCreateRequest,
   type MyTeamResponse,
+  type Region,
   orderPicksForMyTeam,
   sortPicksByTypeOrder,
 } from '../api/endpoints';
@@ -102,7 +104,13 @@ import type { RatingsModel } from '../model/ratings';
 import { buildShortlist, ShortlistInvariantError } from '../shortlist';
 import { makeLineupBaseline, makeSquadBaseline, makeTransferBaseline } from '../baseline';
 import { createSessionStore } from '../sessionStore';
-import { parseConfig, type Env, type ParsedConfig } from '../env';
+import {
+  parseConfig,
+  DEFAULT_ENTRY_FAVOURITE_TEAM,
+  DEFAULT_ENTRY_REGION,
+  type Env,
+  type ParsedConfig,
+} from '../env';
 import {
   RULES,
   type Decision,
@@ -339,6 +347,23 @@ export interface DecisionCoreDeps {
   postTransfers: (moves: TransferMove[]) => Promise<unknown>;
   postMyTeam: (picks: Pick[]) => Promise<unknown>;
 
+  /**
+   * Best-effort, optional port (issue #16): reads `GET regions/` (~20 KB, no
+   * auth) so `runSquadCreation` can sanity-check the configured
+   * `config.entryRegion` before submitting it. Returns `null` on any
+   * failure, same contract as `reloadLivePrices` -- never throws.
+   *
+   * Deliberately NOT a hard dependency of squad creation: `entry-create/`
+   * runs at most once per season, and the live API IGNORES the `region`
+   * field anyway (see `EntryCreateRequest.region`'s doc comment in
+   * src/api/endpoints.ts, learned from entry 35088) -- failing a one-shot
+   * write over an unreadable, functionally-inert list would be strictly
+   * worse than sending an unvalidated value. Absent entirely (e.g. in
+   * tests that don't care about this) is treated exactly like a failed
+   * fetch: proceed with the configured region.
+   */
+  fetchRegions?: () => Promise<Region[] | null>;
+
   logAction: (input: ActionLogInput) => Promise<void>;
   /** Returns the inserted `ai_calls` row id -- `updateAiCallGate` stamps the
    * gate's verdict onto that same row once the gate has run. */
@@ -471,10 +496,65 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
     elementTypeById,
   );
 
+  // favourite_team IS honoured by the server (see EntryCreateRequest's doc
+  // comment -- entry 35088's favourite_team: 1 drove a real league join), so
+  // an unknown id must never reach the payload. deps.teams is already
+  // fetched for this whole tick (getTeams(env.DB) -- 18 rows) and free to
+  // check against; only fall back, and only log, when the configured id
+  // genuinely isn't one of them.
+  //
+  // Unlike `fetchRegions` below, an empty `deps.teams` is NOT treated as
+  // "not read": teams is a required dependency, read from D1 fresh every
+  // tick (never a best-effort network fetch), so a genuinely empty table is
+  // itself the anomaly worth falling back and logging for, not a reason to
+  // skip validation.
+  const configuredFavouriteTeam = deps.config.entryFavouriteTeam;
+  const knownTeamIds = new Set(deps.teams.map((t) => t.id));
+  const favouriteTeam = knownTeamIds.has(configuredFavouriteTeam)
+    ? configuredFavouriteTeam
+    : DEFAULT_ENTRY_FAVOURITE_TEAM;
+  if (favouriteTeam !== configuredFavouriteTeam) {
+    await deps.logAction({
+      ts: nowIso(),
+      kind: 'entry-create-config',
+      intent: { field: 'favourite_team', configured: configuredFavouriteTeam },
+      response: { fallback: favouriteTeam, reason: 'configured id is not a known team' },
+      dryRun: false,
+      source: 'config-fallback',
+      ok: false,
+    });
+  }
+
+  // region is accepted but IGNORED by the server (see EntryCreateRequest's
+  // doc comment -- entry 35088 sent region: 1 and got player_region_id: 225
+  // back, from the account profile, not this field). So this is best-effort
+  // hygiene, not a real safeguard: `fetchRegions` is an OPTIONAL port
+  // (src/workflows/decideCommit.ts's DecisionCoreDeps doc comment explains
+  // why a one-shot write must not gain a hard dependency on a 20 KB
+  // endpoint), and a failed/absent fetch or an empty list is treated as "not
+  // read" -- proceed with the configured value unvalidated -- rather than as
+  // a verdict that it's invalid. Only reject when the list was genuinely
+  // read (non-empty) AND does not contain the configured id.
+  const configuredRegion = deps.config.entryRegion;
+  let region = configuredRegion;
+  const regions = deps.fetchRegions ? await deps.fetchRegions().catch(() => null) : null;
+  if (regions && regions.length > 0 && !regions.some((r) => r.id === configuredRegion)) {
+    region = DEFAULT_ENTRY_REGION;
+    await deps.logAction({
+      ts: nowIso(),
+      kind: 'entry-create-config',
+      intent: { field: 'region', configured: configuredRegion },
+      response: { fallback: region, reason: 'configured id is not in the live regions/ list' },
+      dryRun: false,
+      source: 'config-fallback',
+      ok: false,
+    });
+  }
+
   const payload: EntryCreateRequest = {
-    name: 'Fantasy Agent',
-    favourite_team: 1,
-    region: 1,
+    name: deps.config.entryName,
+    favourite_team: favouriteTeam,
+    region,
     kit: null,
     terms_agreed: true,
     picks: orderedPicks,
@@ -1184,6 +1264,19 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
               status: 0,
               error: err instanceof Error ? err.message : String(err),
             };
+          }
+        },
+        // Public, unauthenticated -- no reason to route through `auth()`
+        // (which also resolves/refreshes the session and costs a `me/`
+        // round trip) just to read a static country list. Best-effort: any
+        // failure resolves `null`, which `runSquadCreation` treats as "not
+        // read" rather than propagating (see DecisionCoreDeps.fetchRegions's
+        // doc comment).
+        fetchRegions: async () => {
+          try {
+            return await apiGetRegions(new FantasyApiClient(env.FANTASY_BASE_URL));
+          } catch {
+            return null;
           }
         },
         postTransfers: async (moves) => {

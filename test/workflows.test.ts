@@ -36,6 +36,8 @@ import {
 import { DecideCommitWorkflow } from '../src/workflows/decideCommit';
 import { isEnabled } from '../src/db';
 import type { TeamRow } from '../src/db';
+import { DEFAULT_ENTRY_NAME, DEFAULT_ENTRY_FAVOURITE_TEAM, DEFAULT_ENTRY_REGION } from '../src/env';
+import type { EntryCreateRequest, Region } from '../src/api/endpoints';
 
 // ---------------------------------------------------------------------------
 // Synthetic universe (same shape as test/optimizer.test.ts's makePool)
@@ -375,6 +377,9 @@ function baseConfig(
     squadMargin: 0.1,
     lineupAbsFloor: 8,
     neuronDailyCap: 8000,
+    entryName: DEFAULT_ENTRY_NAME,
+    entryFavouriteTeam: DEFAULT_ENTRY_FAVOURITE_TEAM,
+    entryRegion: DEFAULT_ENTRY_REGION,
     ...overrides,
   };
 }
@@ -384,6 +389,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
   transferPosts: TransferMove[][];
   myTeamPosts: Pick[][];
   createEntryCalls: number;
+  createEntryPayloads: EntryCreateRequest[];
   opsAlerts: { summary: string; fields?: Record<string, unknown> }[];
 } {
   const { elements, projections } = makePool({
@@ -396,6 +402,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
   const transferPosts: TransferMove[][] = [];
   const myTeamPosts: Pick[][] = [];
   const opsAlerts: { summary: string; fields?: Record<string, unknown> }[] = [];
+  const createEntryPayloads: EntryCreateRequest[] = [];
   let createEntryCalls = 0;
 
   const declineProvider = new StubProvider({ ok: false, error: 'stub declines every call' });
@@ -416,8 +423,9 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
       return { delivered: true };
     },
     reloadLivePrices: async () => null,
-    createEntry: async () => {
+    createEntry: async (payload) => {
       createEntryCalls++;
+      createEntryPayloads.push(payload);
       return { ok: true, entry: 42 };
     },
     postTransfers: async (moves) => {
@@ -442,6 +450,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     actions,
     transferPosts,
     myTeamPosts,
+    createEntryPayloads,
     opsAlerts,
     get createEntryCalls() {
       return createEntryCalls;
@@ -901,6 +910,178 @@ describe('entry-create payload (learned from a real 400)', () => {
       elementTypeById,
     );
     expect(sorted.map((p) => p.element)).toEqual([3, 1, 2]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #16: entry-create identity is configurable, validated, but never a
+// hard dependency of the create path.
+// ---------------------------------------------------------------------------
+
+describe('entry-create identity: config reaches the payload, validated (issue #16)', () => {
+  const REAL_TEAMS: TeamRow[] = [
+    { id: 1, code: 1, name: 'FC Arouca', short_name: 'ARO' },
+    { id: 2, code: 2, name: 'SL Benfica', short_name: 'BEN' },
+    { id: 13, code: 13, name: 'Sporting CP', short_name: 'SCP' },
+  ];
+
+  const REAL_REGIONS: Region[] = [
+    { id: 1, name: 'Afeganistão', code: 1, iso_code_short: 'AF', iso_code_long: 'AFG' },
+    { id: 171, name: 'Portugal', code: 171, iso_code_short: 'PT', iso_code_long: 'PRT' },
+    { id: 225, name: 'Reino Unido', code: 225, iso_code_short: 'GB', iso_code_long: 'GBR' },
+  ];
+
+  it('submits the configured name/favourite_team/region once each validates cleanly', async () => {
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({
+        dryRun: false,
+        entryName: 'My Squad',
+        entryFavouriteTeam: 13,
+        entryRegion: 225,
+      }),
+      fetchRegions: async () => REAL_REGIONS,
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(true);
+    expect(deps.createEntryPayloads).toHaveLength(1);
+    const payload = deps.createEntryPayloads[0]!;
+    expect(payload.name).toBe('My Squad');
+    expect(payload.favourite_team).toBe(13);
+    expect(payload.region).toBe(225);
+    expect(payload.kit).toBeNull();
+    // No fallback was needed, so no config-fallback anomaly was logged.
+    expect(deps.actions.some((a) => (a as { kind: string }).kind === 'entry-create-config')).toBe(
+      false,
+    );
+  });
+
+  it('falls back to the default favourite_team, and logs the substitution, when the configured id is not a real team', async () => {
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: false, entryFavouriteTeam: 999 }),
+      fetchRegions: async () => REAL_REGIONS,
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(true);
+    const payload = deps.createEntryPayloads[0]!;
+    // The unknown id must never reach the live API -- it falls back to the
+    // documented default (SL Benfica, id 2) rather than being submitted.
+    expect(payload.favourite_team).toBe(DEFAULT_ENTRY_FAVOURITE_TEAM);
+
+    const anomaly = deps.actions.find(
+      (a) => (a as { kind: string }).kind === 'entry-create-config',
+    ) as { intent: { field: string; configured: number }; response: { fallback: number } };
+    expect(anomaly).toBeDefined();
+    expect(anomaly.intent.field).toBe('favourite_team');
+    expect(anomaly.intent.configured).toBe(999);
+    expect(anomaly.response.fallback).toBe(DEFAULT_ENTRY_FAVOURITE_TEAM);
+  });
+
+  it('falls back to the default region, and logs the substitution, when the configured id is absent from a successfully-read regions list', async () => {
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: false, entryRegion: 999 }),
+      fetchRegions: async () => REAL_REGIONS,
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    const payload = deps.createEntryPayloads[0]!;
+    expect(payload.region).toBe(DEFAULT_ENTRY_REGION);
+
+    const anomaly = deps.actions.find(
+      (a) => (a as { kind: string }).kind === 'entry-create-config',
+    ) as { intent: { field: string; configured: number }; response: { fallback: number } };
+    expect(anomaly).toBeDefined();
+    expect(anomaly.intent.field).toBe('region');
+    expect(anomaly.intent.configured).toBe(999);
+    expect(anomaly.response.fallback).toBe(DEFAULT_ENTRY_REGION);
+  });
+
+  it('still creates the entry with the CONFIGURED region when fetchRegions rejects -- a one-shot write must not gain a hard dependency on regions/', async () => {
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: false, entryRegion: 999 }),
+      fetchRegions: async () => {
+        throw new Error('network error');
+      },
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(true);
+    const payload = deps.createEntryPayloads[0]!;
+    // Unvalidated (the list could not be read), but still sent -- rejecting
+    // the create over an unreadable, functionally-inert field would be
+    // strictly worse than sending an unvalidated value.
+    expect(payload.region).toBe(999);
+    expect(deps.actions.some((a) => (a as { kind: string }).kind === 'entry-create-config')).toBe(
+      false,
+    );
+  });
+
+  it('still creates the entry with the configured region when fetchRegions is absent from deps entirely', async () => {
+    // No fetchRegions override at all -- makeDeps's base deps object doesn't
+    // set one, exactly like a caller that hasn't wired the port.
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: false, entryRegion: 171 }),
+    });
+    expect(deps.fetchRegions).toBeUndefined();
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(true);
+    const payload = deps.createEntryPayloads[0]!;
+    expect(payload.region).toBe(171);
+  });
+
+  it('treats an empty regions list as "not read", not as "no id is valid"', async () => {
+    // A genuinely empty response would make every id "unknown" if treated as
+    // successfully read -- that's a broken fetch, not a verdict on 171.
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: false, entryRegion: 171 }),
+      fetchRegions: async () => [],
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    const payload = deps.createEntryPayloads[0]!;
+    expect(payload.region).toBe(171);
+    expect(deps.actions.some((a) => (a as { kind: string }).kind === 'entry-create-config')).toBe(
+      false,
+    );
+  });
+
+  it('never calls fetchRegions on a dry run -- the 20 KB GET only happens on a real create', async () => {
+    let fetched = false;
+    const deps = makeDeps({
+      teams: REAL_TEAMS,
+      config: baseConfig({ dryRun: true }),
+      fetchRegions: async () => {
+        fetched = true;
+        return REAL_REGIONS;
+      },
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(false);
+    expect(fetched).toBe(false);
+    expect(deps.createEntryCalls).toBe(0);
   });
 });
 

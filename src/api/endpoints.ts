@@ -47,6 +47,36 @@ export function getFixtures(client: FantasyApiClient, event: number): Promise<Fi
   return client.get<Fixture[]>('fixtures/', { query: { event } });
 }
 
+/** One entry in `GET regions/`. Despite the name, this is a 242-entry list
+ * of COUNTRIES, not Portuguese administrative regions — ids run 1..242,
+ * e.g. `{ id: 1, name: "Afeganistão", code: 1, iso_code_short: "AF",
+ * iso_code_long: "AFG" }` through `{ id: 242, name: "Rússia", ... }`, with
+ * `{ id: 171, name: "Portugal", iso_code_short: "PT", iso_code_long: "PRT" }`
+ * in between. Real shape, verified against the live endpoint (200, ~20 KB,
+ * no auth). */
+export interface Region {
+  id: number;
+  name: string;
+  code: number;
+  iso_code_short: string;
+  iso_code_long: string;
+}
+
+/**
+ * Public, unauthenticated: `GET regions/` needs no cookie, same as
+ * `bootstrap-static/`. ~20 KB, 242 rows — worth fetching only where its
+ * cost is actually justified (see `DecisionCoreDeps.fetchRegions`'s doc
+ * comment in src/workflows/decideCommit.ts), not on every tick.
+ *
+ * Also worth knowing before calling this to "validate" anything: the entry-
+ * create/ `region` field this list would validate is IGNORED by the server
+ * anyway — see `EntryCreateRequest.region`'s doc comment below, learned
+ * from entry 35088.
+ */
+export function getRegions(client: FantasyApiClient): Promise<Region[]> {
+  return client.get<Region[]>('regions/');
+}
+
 /** One identifier/points/value/points_modification triple inside a live
  * element's explain block for one fixture. */
 export interface LiveExplainStat {
@@ -195,8 +225,31 @@ export interface EntryCreatePick {
 
 export interface EntryCreateRequest {
   name: string;
+  /**
+   * IS honoured by the server and drives real behaviour: entry 35088 was
+   * submitted with `favourite_team: 1` and the created entry was auto-joined
+   * to the `team-1` ("FC Arouca") classic league, visible in its own
+   * `leagues.classic`. Unlike `region` below, this is not cosmetic — pick
+   * it deliberately (see `DEFAULT_ENTRY_FAVOURITE_TEAM` in src/env.ts) and
+   * validate it against a real team id before submitting, which
+   * `runSquadCreation` does.
+   */
   favourite_team: number;
+  /**
+   * Accepted by the server but IGNORED — confirmed on entry 35088:
+   * submitted as `region: 1` (Afeganistão), but the created entry came back
+   * with `player_region_id: 225` (Reino Unido) and was auto-joined to the
+   * `region-225` classic league, i.e. the account's own profile region, not
+   * this field. So an invalid `region` id costs nothing observable, but
+   * there is no reason to send a wrong one either — see
+   * `DEFAULT_ENTRY_REGION` in src/env.ts and `getRegions` above.
+   */
   region: number;
+  /**
+   * `null` is accepted and stored as `null` — confirmed on entry 35088
+   * (`"kit": null` came back unchanged). No kit object is required; nothing
+   * else here needs to build one.
+   */
   kit: unknown;
   /**
    * Required. The live API rejects a submission without it:
