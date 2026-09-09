@@ -15,7 +15,8 @@ import {
   type ShortlistEntry,
 } from '../src/ai/prompts';
 import { CONTEXT_WINDOW_TOKENS } from '../src/ai/provider';
-import { Position, type Element, type Team } from '../src/types';
+import { SQUAD_ANSWER_KEYS, SQUAD_SCHEMA } from '../src/ai/schemas';
+import { Position, RULES, type Element, type Team } from '../src/types';
 import bootstrapStatic from './fixtures/bootstrap-static.json';
 
 import jsonSchemaSquad from './fixtures/workers-ai/json-schema-squad.json';
@@ -206,6 +207,20 @@ describe('buildSquadPrompt', () => {
     expect(user).toContain(flagged!.news);
   });
 
+  it('names the schema answer key beside each position block, so the two cannot drift', () => {
+    // The prompt tells the model which answer list each candidate block
+    // fills. It derives those names by lowercasing the position code, and
+    // SQUAD_SCHEMA declares them independently - nothing but this test
+    // stops the two from parting company, and a mismatch would silently
+    // hand the model a list name that does not exist.
+    const { user } = buildSquadPrompt(realisticShortlist(60));
+    for (const [key, count] of SQUAD_ANSWER_KEYS) {
+      expect(user).toContain(`choose exactly ${count} of these`);
+      expect(user).toContain(`into "${key}"`);
+      expect(SQUAD_SCHEMA.properties).toHaveProperty(key);
+    }
+  });
+
   it('never truncates news even when it is long', () => {
     const longNews =
       'Lesão muscular na coxa esquerda, sofrida no treino de terça-feira; ' +
@@ -326,5 +341,33 @@ describe('real prompts stay well inside the context budget under a worst-case sh
     expect(() => assertPromptFits(fullPrompt, budget)).not.toThrow();
     // Measured: ~4,270 tokens against a ~23,850-token budget.
     expect(estimateTokens(fullPrompt)).toBeLessThan(budget / 2);
+  });
+});
+
+describe('SQUAD_SCHEMA', () => {
+  it('declares the per-position lengths RULES.squadSelect requires', () => {
+    // SQUAD_SCHEMA hardcodes its lengths so src/ai/schemas.ts stays a module
+    // of shapes with no dependency on the domain model. This is what keeps
+    // that honest: a change to RULES.squadSelect that does not reach the
+    // schema would otherwise ask the model for a composition the validator
+    // rejects on every single answer.
+    const byKey = new Map<string, Position>([
+      ['gk', Position.GK],
+      ['def', Position.DEF],
+      ['mid', Position.MID],
+      ['fwd', Position.FWD],
+    ]);
+    let total = 0;
+    for (const [key, count] of SQUAD_ANSWER_KEYS) {
+      const position = byKey.get(key);
+      expect(position).toBeDefined();
+      expect(count).toBe(RULES.squadSelect[position!]);
+      const property = SQUAD_SCHEMA.properties[key] as { minItems: number; maxItems: number };
+      expect(property.minItems).toBe(count);
+      expect(property.maxItems).toBe(count);
+      total += count;
+    }
+    expect(total).toBe(RULES.squadSize);
+    expect(SQUAD_SCHEMA.required).toEqual(['gk', 'def', 'mid', 'fwd', 'reason']);
   });
 });

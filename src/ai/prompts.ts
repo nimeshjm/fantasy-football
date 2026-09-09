@@ -217,7 +217,8 @@ function squadCandidateBlocks(shortlist: ShortlistEntry[]): string {
     const entries = byPosition.get(position) ?? [];
     const code = PROMPT_POSITION_CODE[position];
     blocks.push(
-      `## ${code} - choose exactly ${RULES.squadSelect[position]} of these ${entries.length}\n` +
+      `## ${code} - choose exactly ${RULES.squadSelect[position]} of these ${entries.length}, ` +
+        `into "${code.toLowerCase()}"\n` +
         `${PLAYER_LINE_HEADER}\n${entries.map(formatPlayerLine).join('\n')}`,
     );
   }
@@ -231,19 +232,18 @@ export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
     `Maximise total expected points (xpts) for the squad subject to those constraints. A ` +
     `player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat ` +
     `an active injury or suspension as a strong reason to avoid that player. Respond using the ` +
-    `JSON schema only: the 15 chosen ids and one short reason.`;
+    `JSON schema only: one list of ids per position, and one short reason.`;
   // The rules are restated after the candidates as well as before them: the
   // list is long enough that the system message is thousands of tokens behind
   // the point where the answer is generated.
   const user =
-    `Candidates are grouped by position. Take exactly the stated number from each group.\n\n` +
+    `Candidates are grouped by position. Each group below fills the answer list of the ` +
+    `same name, and the schema fixes how many ids that list holds.\n\n` +
     `${squadCandidateBlocks(shortlist)}\n\n` +
-    `Check before answering: ${RULES.squadSize} ids in total and all distinct - ` +
-    SQUAD_POSITION_ORDER.map((p) => `${RULES.squadSelect[p]} ${PROMPT_POSITION_CODE[p]}`).join(
-      ', ',
-    ) +
-    `; at most ${RULES.teamLimit} ids sharing a club; total cost of the ${RULES.squadSize} ` +
-    `at most EUR${(RULES.budget / 10).toFixed(1)}m.`;
+    `Put each id in the list for its own group. The two constraints the schema cannot ` +
+    `express, and the only ones left to check: at most ${RULES.teamLimit} ids sharing a club ` +
+    `across all four lists, and total cost of the ${RULES.squadSize} at most ` +
+    `EUR${(RULES.budget / 10).toFixed(1)}m.`;
   return { system, user };
 }
 

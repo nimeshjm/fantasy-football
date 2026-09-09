@@ -1,10 +1,10 @@
 ### case: squad-gw2
 ### system
-You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: the 15 chosen ids and one short reason.
+You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: one list of ids per position, and one short reason.
 ### user
-Candidates are grouped by position. Take exactly the stated number from each group.
+Candidates are grouped by position. Each group below fills the answer list of the same name, and the schema fixes how many ids that list holds.
 
-## GK - choose exactly 2 of these 20
+## GK - choose exactly 2 of these 20, into "gk"
 id|name|pos|club|cost|xpts|form|mins|news?
 27|Ewerton|GK|AVFC|4.0|3.9|2.5|360
 30|Ricardo Batista|GK|CPAC|4.0|0.0|0.0|0|news:Emprestado / On Loan
@@ -27,7 +27,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 626|Tomé Sousa|GK|CDSC|4.0|2.9|0.0|0
 646|Juan Soriano|GK|AVFC|4.5|3.3|0.0|0
 
-## DEF - choose exactly 5 of these 54
+## DEF - choose exactly 5 of these 54, into "def"
 id|name|pos|club|cost|xpts|form|mins|news?
 1|André Almeida|DEF|AVFC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 4|Igor Milioransa|DEF|AVFC|4.0|2.6|0.2|135
@@ -84,7 +84,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 630|Kokolo|DEF|CDN|4.5|2.9|1.7|111
 640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0
 
-## MID - choose exactly 5 of these 58
+## MID - choose exactly 5 of these 58, into "mid"
 id|name|pos|club|cost|xpts|form|mins|news?
 19|Kahraman|MID|AVFC|5.5|3.7|3.5|283
 22|Simão Silva|MID|AVFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
@@ -145,7 +145,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 649|Pauwels|MID|CPAC|4.5|2.9|2.0|12
 655|Min-kyu Song|MID|CDN|4.5|3.0|0.0|0
 
-## FWD - choose exactly 3 of these 30
+## FWD - choose exactly 3 of these 30, into "fwd"
 id|name|pos|club|cost|xpts|form|mins|news?
 9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275
 38|Svensson|FWD|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
@@ -178,4 +178,4 @@ id|name|pos|club|cost|xpts|form|mins|news?
 634|Paulinho|FWD|AVFC|5.5|4.2|0.0|0
 654|Evans Maurin|FWD|CPAC|4.5|3.8|0.0|0
 
-Check before answering: 15 ids in total and all distinct - 2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 ids sharing a club; total cost of the 15 at most EUR100.0m.
+Put each id in the list for its own group. The two constraints the schema cannot express, and the only ones left to check: at most 3 ids sharing a club across all four lists, and total cost of the 15 at most EUR100.0m.

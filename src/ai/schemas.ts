@@ -38,21 +38,73 @@ export interface TransferLlmResult {
   reason: string;
 }
 
+/**
+ * One fixed-length array per position, mirroring the per-position candidate
+ * blocks `buildSquadPrompt` emits. The lengths are what the decoder enforces:
+ * the real capture in test/fixtures/workers-ai/json-schema-lineup.json is
+ * exactly 11 `starters` with one id filling two slots (issue #26), so the
+ * model pads to `minItems` even at the cost of repeating an id. Splitting the
+ * squad answer this way therefore makes the position COUNTS structural rather
+ * than four counters the model has to hold while it picks - it got them wrong
+ * in 9 of 9 recorded attempts on the flat `picks: [15]` shape this replaced,
+ * with DEF wrong every single time.
+ *
+ * It does NOT make `position-count` unviolatable: nothing here stops a MID id
+ * being written into `def`. `validateSquad` still has to check, and
+ * `decideSquad` still has to retry and repair.
+ *
+ * Lengths must match `RULES.squadSelect`; test/schemas.test.ts asserts that
+ * rather than this file importing from src/types.ts, which would pull the
+ * whole domain model into a module that is otherwise just shapes.
+ */
 export const SQUAD_SCHEMA = {
   type: 'object',
   properties: {
-    picks: {
+    gk: {
       type: 'array',
       items: { type: 'integer' },
-      minItems: 15,
-      maxItems: 15,
-      description: 'The 15 chosen element ids.',
+      minItems: 2,
+      maxItems: 2,
+      description: 'The 2 chosen goalkeeper element ids.',
+    },
+    def: {
+      type: 'array',
+      items: { type: 'integer' },
+      minItems: 5,
+      maxItems: 5,
+      description: 'The 5 chosen defender element ids.',
+    },
+    mid: {
+      type: 'array',
+      items: { type: 'integer' },
+      minItems: 5,
+      maxItems: 5,
+      description: 'The 5 chosen midfielder element ids.',
+    },
+    fwd: {
+      type: 'array',
+      items: { type: 'integer' },
+      minItems: 3,
+      maxItems: 3,
+      description: 'The 3 chosen forward element ids.',
     },
     reason: { type: 'string', maxLength: 300 },
   },
-  required: ['picks', 'reason'],
+  required: ['gk', 'def', 'mid', 'fwd', 'reason'],
   additionalProperties: false,
 } as const;
+
+/** The `SQUAD_SCHEMA` keys in squad-slot order, with the length each one
+ * carries. Exported so test/schemas.test.ts can hold it against
+ * `RULES.squadSelect` and `RULES.squadSize`. */
+export const SQUAD_ANSWER_KEYS = [
+  ['gk', 2],
+  ['def', 5],
+  ['mid', 5],
+  ['fwd', 3],
+] as const;
+
+const SQUAD_TOTAL = SQUAD_ANSWER_KEYS.reduce((n, [, count]) => n + count, 0);
 
 export const LINEUP_SCHEMA = {
   type: 'object',
@@ -130,6 +182,33 @@ function parseJson(text: string): { ok: true; value: unknown } | { ok: false; er
   }
 }
 
+/**
+ * Flattens a squad answer into slot order, accepting either shape: the
+ * position-keyed arrays `SQUAD_SCHEMA` now asks for, or the flat
+ * `picks: [15]` it asked for before 2026-09-09. The flat form is still
+ * live, not dead code - the real capture in
+ * test/fixtures/workers-ai/json-schema-squad.json is that older shape, and
+ * rewriting a recorded response to suit a newer schema would destroy the
+ * only genuine evidence of what this model actually returned.
+ */
+function squadPicksFrom(obj: Record<string, unknown>): ParseResult<number[]> {
+  if (obj.picks !== undefined) {
+    if (!isIntegerArray(obj.picks) || obj.picks.length !== SQUAD_TOTAL) {
+      return { ok: false, error: `"picks" must be an array of exactly ${SQUAD_TOTAL} integers` };
+    }
+    return { ok: true, value: obj.picks };
+  }
+  const picks: number[] = [];
+  for (const [key, count] of SQUAD_ANSWER_KEYS) {
+    const list = obj[key];
+    if (!isIntegerArray(list) || list.length !== count) {
+      return { ok: false, error: `"${key}" must be an array of exactly ${count} integers` };
+    }
+    picks.push(...list);
+  }
+  return { ok: true, value: picks };
+}
+
 export function parseSquadResult(text: string): ParseResult<SquadLlmResult> {
   const parsed = parseJson(text);
   if (!parsed.ok) return parsed;
@@ -138,20 +217,19 @@ export function parseSquadResult(text: string): ParseResult<SquadLlmResult> {
     return { ok: false, error: 'response is not a JSON object' };
   }
   const obj = v as Record<string, unknown>;
-  if (!isIntegerArray(obj.picks) || obj.picks.length !== 15) {
-    return { ok: false, error: '"picks" must be an array of exactly 15 integers' };
-  }
-  const duplicatePick = findDuplicate(obj.picks);
+  const picks = squadPicksFrom(obj);
+  if (!picks.ok) return picks;
+  const duplicatePick = findDuplicate(picks.value);
   if (duplicatePick !== undefined) {
     return {
       ok: false,
-      error: `"picks" must be 15 distinct ids; ${duplicatePick} appears more than once`,
+      error: `squad must be ${SQUAD_TOTAL} distinct ids; ${duplicatePick} appears more than once`,
     };
   }
   if (typeof obj.reason !== 'string') {
     return { ok: false, error: '"reason" must be a string' };
   }
-  return { ok: true, value: { picks: obj.picks, reason: obj.reason } };
+  return { ok: true, value: { picks: picks.value, reason: obj.reason } };
 }
 
 /**

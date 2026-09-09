@@ -1,10 +1,10 @@
 ### case: squad-gw4
 ### system
-You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: the 15 chosen ids and one short reason.
+You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: one list of ids per position, and one short reason.
 ### user
-Candidates are grouped by position. Take exactly the stated number from each group.
+Candidates are grouped by position. Each group below fills the answer list of the same name, and the schema fixes how many ids that list holds.
 
-## GK - choose exactly 2 of these 19
+## GK - choose exactly 2 of these 19, into "gk"
 id|name|pos|club|cost|xpts|form|mins|news?
 27|Ewerton|GK|AVFC|4.0|3.4|2.5|360
 30|Ricardo Batista|GK|CPAC|4.0|0.0|0.0|0|news:Emprestado / On Loan
@@ -26,7 +26,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 534|João Virgínia|GK|SCP|5.5|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 551|Charles|GK|VSC|4.9|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 
-## DEF - choose exactly 5 of these 52
+## DEF - choose exactly 5 of these 52, into "def"
 id|name|pos|club|cost|xpts|form|mins|news?
 1|André Almeida|DEF|AVFC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 49|Afonso Vieira|DEF|CPAC|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
@@ -81,7 +81,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 538|Vagiannidis|DEF|SCP|5.4|1.2|0.8|159|news:Lesão Desconhecida / Unknown Injury
 565|Lebedenko|DEF|FCA|4.5|3.3|3.0|295
 
-## MID - choose exactly 5 of these 58
+## MID - choose exactly 5 of these 58, into "mid"
 id|name|pos|club|cost|xpts|form|mins|news?
 22|Simão Silva|MID|AVFC|4.5|0.0|0.0|0|news:Emprestado / On Loan
 23|Tavares Silva|MID|AVFC|4.5|0.0|0.0|0|news:Lesão Desconhecida / Unknown Injury
@@ -142,7 +142,7 @@ id|name|pos|club|cost|xpts|form|mins|news?
 614|António Gil|MID|SCB|4.5|2.9|0.0|0
 655|Min-kyu Song|MID|CDN|4.5|2.9|0.0|0
 
-## FWD - choose exactly 3 of these 29
+## FWD - choose exactly 3 of these 29, into "fwd"
 id|name|pos|club|cost|xpts|form|mins|news?
 9|André Clóvis|FWD|AVFC|6.0|3.9|4.5|275
 38|Svensson|FWD|CPAC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
@@ -174,4 +174,4 @@ id|name|pos|club|cost|xpts|form|mins|news?
 563|Michel|FWD|VSC|5.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer
 654|Evans Maurin|FWD|CPAC|4.5|3.5|0.0|0
 
-Check before answering: 15 ids in total and all distinct - 2 GK, 5 DEF, 5 MID, 3 FWD; at most 3 ids sharing a club; total cost of the 15 at most EUR100.0m.
+Put each id in the list for its own group. The two constraints the schema cannot express, and the only ones left to check: at most 3 ids sharing a club across all four lists, and total cost of the 15 at most EUR100.0m.

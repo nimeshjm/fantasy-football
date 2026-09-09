@@ -165,11 +165,18 @@ describe('WorkersAiProvider.complete() against recorded envelopes', () => {
     // json-schema-*.json fixture, which is the schema itself with no
     // wrapper).
     expect(input.response_format).toEqual({ type: 'json_schema', json_schema: SQUAD_SCHEMA });
-    // Tie SQUAD_SCHEMA to live evidence rather than just its own constant:
-    // this is the exact raw, unwrapped schema json-schema-squad.json's
-    // `request.response_format.json_schema` recorded, which is the schema
-    // that actually got a good answer out of Workers AI.
-    expect(jsonSchemaSquad.request.response_format.json_schema).toEqual(SQUAD_SCHEMA);
+    // The capture records the flat `picks: [15]` schema, which is what
+    // SQUAD_SCHEMA was until it split into one fixed-length array per
+    // position (see the doc comment there). So this can no longer assert
+    // equality with SQUAD_SCHEMA - what it still pins to live evidence is
+    // the shape of the wire contract: Workers AI recorded the schema raw and
+    // unwrapped, exactly as sent. The current schema's end-to-end evidence
+    // is the eval live lane, which records its own request per call.
+    const recorded = jsonSchemaSquad.request.response_format.json_schema as Record<string, unknown>;
+    expect(recorded).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(recorded).toHaveProperty('properties');
+    expect(recorded).not.toHaveProperty('name');
+    expect(recorded).not.toHaveProperty('schema');
     expect((input.response_format as { json_schema: unknown }).json_schema).not.toHaveProperty(
       'name',
     );

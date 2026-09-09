@@ -27,14 +27,36 @@ export function cassetteKey(model: string, input: Record<string, unknown>): stri
 }
 
 export class CassetteMissError extends Error {
-  constructor(key: string, model: string, dir: string, cassetteCount: number) {
+  constructor(key: string, occurrence: number, model: string, dir: string, cassetteCount: number) {
+    const which =
+      occurrence === 0
+        ? `No cassette for key ${key}`
+        : `No cassette for call ${occurrence + 1} of key ${key} (${occurrence} recorded)`;
     super(
-      `No cassette for key ${key} (model ${model}) in ${dir} (${cassetteCount} cassette${cassetteCount === 1 ? '' : 's'} present). ` +
+      `${which} (model ${model}) in ${dir} (${cassetteCount} cassette${cassetteCount === 1 ? '' : 's'} present). ` +
         `A prompt or input change invalidates recorded cassettes - re-record with EVAL_LIVE=1 npm run eval.`,
     );
     this.name = 'CassetteMissError';
   }
 }
+
+/**
+ * One decision can send the SAME prompt twice: decideSquad appends the
+ * previous answer's violations to the retry prompt, so two attempts that
+ * broke identical rules get byte-identical prompts. The model is free to
+ * answer them differently, and it does. Keying on (model, input) alone
+ * therefore collapsed both calls onto one file, the second write clobbered
+ * the first, and replay could no longer reproduce the chain - a real
+ * squad-gw4 recording died exactly this way. So repeated calls get an
+ * occurrence suffix and are served in recording order. Occurrence 0 keeps
+ * the bare `<key>.json` name, which is what every cassette recorded before
+ * this already is.
+ */
+function cassetteFileName(key: string, occurrence: number): string {
+  return occurrence === 0 ? `${key}.json` : `${key}-${occurrence}.json`;
+}
+
+const CASSETTE_FILE = /^([0-9a-f]{16})(?:-(\d+))?\.json$/;
 
 interface CassetteFile {
   request?: Record<string, unknown>;
@@ -45,21 +67,25 @@ interface CassetteFile {
 export class ReplayAi implements AiShim {
   readonly mode = 'replay' as const;
   readonly calls: AiCallLog[] = [];
-  private cassettes?: Map<string, CassetteFile>;
+  private cassettes?: Map<string, CassetteFile[]>;
+  private readonly served = new Map<string, number>();
 
   constructor(private readonly dir: string) {}
 
-  private load(): Map<string, CassetteFile> {
+  private load(): Map<string, CassetteFile[]> {
     if (this.cassettes) return this.cassettes;
-    const cassettes = new Map<string, CassetteFile>();
+    const cassettes = new Map<string, CassetteFile[]>();
     if (existsSync(this.dir)) {
       for (const file of readdirSync(this.dir)) {
-        if (!file.endsWith('.json')) continue;
-        const key = file.slice(0, -'.json'.length);
-        cassettes.set(
-          key,
-          JSON.parse(readFileSync(path.join(this.dir, file), 'utf8')) as CassetteFile,
-        );
+        const match = CASSETTE_FILE.exec(file);
+        if (!match) continue;
+        const key = match[1]!;
+        const occurrence = match[2] === undefined ? 0 : Number(match[2]);
+        const list = cassettes.get(key) ?? [];
+        list[occurrence] = JSON.parse(
+          readFileSync(path.join(this.dir, file), 'utf8'),
+        ) as CassetteFile;
+        cassettes.set(key, list);
       }
     }
     this.cassettes = cassettes;
@@ -73,9 +99,17 @@ export class ReplayAi implements AiShim {
   ): Promise<unknown> {
     const key = cassetteKey(model, input);
     const cassettes = this.load();
-    const cassette = cassettes.get(key);
+    const occurrence = this.served.get(key) ?? 0;
+    this.served.set(key, occurrence + 1);
+    const cassette = cassettes.get(key)?.[occurrence];
     if (!cassette) {
-      throw new CassetteMissError(key, model, this.dir, cassettes.size);
+      throw new CassetteMissError(
+        key,
+        occurrence,
+        model,
+        this.dir,
+        [...cassettes.values()].reduce((n, list) => n + list.filter(Boolean).length, 0),
+      );
     }
     if (typeof cassette.error === 'string') {
       this.calls.push({ model, input, error: cassette.error });
@@ -93,6 +127,7 @@ export function writeCassette(
   input: Record<string, unknown>,
   envelope: unknown,
   meta?: Record<string, unknown>,
+  occurrence = 0,
 ): string {
   const key = cassetteKey(model, input);
   mkdirSync(dir, { recursive: true });
@@ -101,8 +136,33 @@ export function writeCassette(
     request: input,
     envelope,
   };
-  writeFileSync(path.join(dir, `${key}.json`), JSON.stringify(body, null, 2) + '\n', 'utf8');
+  writeFileSync(
+    path.join(dir, cassetteFileName(key, occurrence)),
+    JSON.stringify(body, null, 2) + '\n',
+    'utf8',
+  );
   return key;
+}
+
+/** Records a whole run's calls, counting repeats per key so `ReplayAi` can
+ * serve them back in the order they happened. The only correct way to write
+ * cassettes for a run: writing them one by one loses the ordinal. */
+export function writeRunCassettes(
+  dir: string,
+  calls: readonly AiCallLog[],
+  meta?: Record<string, unknown>,
+): void {
+  const counts = new Map<string, number>();
+  for (const call of calls) {
+    const key = cassetteKey(call.model, call.input);
+    const occurrence = counts.get(key) ?? 0;
+    counts.set(key, occurrence + 1);
+    if (call.error !== undefined) {
+      writeErrorCassette(dir, call.model, call.input, call.error, meta, occurrence);
+    } else {
+      writeCassette(dir, call.model, call.input, call.envelope, meta, occurrence);
+    }
+  }
 }
 
 /** A provider failure is a real observation about a request — a refusal, a
@@ -115,6 +175,7 @@ export function writeErrorCassette(
   input: Record<string, unknown>,
   error: string,
   meta?: Record<string, unknown>,
+  occurrence = 0,
 ): string {
   const key = cassetteKey(model, input);
   mkdirSync(dir, { recursive: true });
@@ -123,13 +184,21 @@ export function writeErrorCassette(
     request: input,
     error,
   };
-  writeFileSync(path.join(dir, `${key}.json`), JSON.stringify(body, null, 2) + '\n', 'utf8');
+  writeFileSync(
+    path.join(dir, cassetteFileName(key, occurrence)),
+    JSON.stringify(body, null, 2) + '\n',
+    'utf8',
+  );
   return key;
 }
 
+/** Distinct cassette keys, ignoring occurrence suffixes. */
 export function listCassetteKeys(dir: string): string[] {
   if (!existsSync(dir)) return [];
-  return readdirSync(dir)
-    .filter((f) => f.endsWith('.json'))
-    .map((f) => f.slice(0, -'.json'.length));
+  const keys = new Set<string>();
+  for (const file of readdirSync(dir)) {
+    const match = CASSETTE_FILE.exec(file);
+    if (match) keys.add(match[1]!);
+  }
+  return [...keys];
 }

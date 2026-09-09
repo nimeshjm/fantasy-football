@@ -494,12 +494,24 @@ function applyOneRepair(
       list.push(pick);
       clubPicks.set(el.team, list);
     }
+    // Any club already holding `teamLimit` picks is off limits as a source of
+    // replacements: swapping into the offending club leaves the count
+    // untouched, and swapping into another full club just moves the
+    // violation. Without this the loop spins to MAX_ITERATIONS and repair
+    // gives up, dropping the decision to the deterministic fallback. It
+    // takes a badly over-weighted club to show: a squad-gw2 answer with SIX
+    // players from one club failed this way, because the top-ranked
+    // same-position candidates were from that same club, while answers with
+    // four or five from one club still converged.
+    const fullTeams = new Set(
+      [...clubPicks.entries()].filter(([, list]) => list.length >= RULES.teamLimit).map(([t]) => t),
+    );
     for (const list of clubPicks.values()) {
       if (list.length > RULES.teamLimit) {
         const cheapest = [...list].sort(
           (a, b) => byId.get(a.element)!.now_cost - byId.get(b.element)!.now_cost,
         )[0]!;
-        return replaceOffender(working, cheapest, ranked, byId);
+        return replaceOffender(working, cheapest, ranked, byId, undefined, fullTeams);
       }
     }
   }
@@ -552,6 +564,7 @@ function replaceOffender(
   ranked: number[],
   byId: Map<number, Element>,
   wantPosition?: Position,
+  avoidTeams?: ReadonlySet<number>,
 ): boolean {
   const offenderElement = byId.get(offender.element);
   const targetPosition = wantPosition ?? offenderElement?.element_type;
@@ -563,6 +576,7 @@ function replaceOffender(
     if (!candidate) continue;
     if (candidate.removed || !candidate.can_select) continue;
     if (targetPosition !== undefined && candidate.element_type !== targetPosition) continue;
+    if (avoidTeams?.has(candidate.team)) continue;
     offender.element = candidateId;
     return true;
   }

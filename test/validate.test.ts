@@ -536,6 +536,70 @@ describe('repairSquad', () => {
     expect(validateSquad(result.picks, universe)).toEqual([]);
   });
 
+  it('repairs six from one club even when the best-ranked replacements share that club', () => {
+    // The failure this closes: the club-limit repair swapped the cheapest
+    // offender for the highest-ranked same-position player without checking
+    // its club, so when that player also came from the offending club the
+    // count never fell, `applyOneRepair` kept reporting progress, and repair
+    // spun out its iteration budget and gave up - dropping the whole
+    // decision to the deterministic fallback. Seen live on squad-gw2, whose
+    // answer held SIX players from one club; four or five still converged,
+    // which is why it stayed hidden.
+    //
+    // club1 starts with 101 (GK), 103 (DEF), 108 (MID). Swapping three
+    // non-club1 players for club1 ones of the same position takes it to 6
+    // while positions, squad size and budget all stay right, so club-limit
+    // is the only rule broken.
+    const club1Extras = [
+      makeElement({ id: 520, element_type: Position.DEF, team: 1, now_cost: 45 }),
+      makeElement({ id: 521, element_type: Position.MID, team: 1, now_cost: 55 }),
+      makeElement({ id: 522, element_type: Position.FWD, team: 1, now_cost: 60 }),
+    ];
+    // Same position, same club, ranked ahead of everything legal: these are
+    // the swaps that must be refused. There have to be more of them than
+    // repairSquad's iteration budget (RULES.squadSize * 2), because a swap
+    // into the offending club still consumes that candidate - so a handful
+    // of them only costs a few wasted iterations and repair recovers. What
+    // broke live was a club with enough shortlisted players to outlast the
+    // budget entirely.
+    const club1Decoys = Array.from({ length: RULES.squadSize * 2 + 5 }, (_, i) =>
+      makeElement({ id: 600 + i, element_type: Position.GK, team: 1, now_cost: 40 }),
+    );
+    const legalAlternatives = [
+      makeElement({ id: 540, element_type: Position.GK, team: 11, now_cost: 40 }),
+      makeElement({ id: 541, element_type: Position.DEF, team: 12, now_cost: 40 }),
+      makeElement({ id: 542, element_type: Position.DEF, team: 13, now_cost: 45 }),
+      makeElement({ id: 543, element_type: Position.MID, team: 14, now_cost: 50 }),
+      makeElement({ id: 544, element_type: Position.MID, team: 15, now_cost: 55 }),
+      makeElement({ id: 545, element_type: Position.FWD, team: 16, now_cost: 60 }),
+    ];
+
+    const displaced = [105, 109, 113];
+    const elements = LEGAL_SQUAD_ELEMENTS.filter((e) => !displaced.includes(e.id)).concat(
+      club1Extras,
+    );
+    expect(elements).toHaveLength(15);
+    expect(elements.filter((e) => e.team === 1)).toHaveLength(6);
+
+    const universe = [...ALL_ELEMENTS, ...club1Extras, ...club1Decoys, ...legalAlternatives];
+    const ranked = [
+      ...club1Decoys.map((e) => e.id),
+      ...legalAlternatives.map((e) => e.id),
+      ...LEGAL_SQUAD_ELEMENTS.map((e) => e.id),
+    ];
+
+    // Only the club limit is broken going in - otherwise this would not be
+    // testing the club-limit repair path.
+    expect(validateSquad(picksFor(elements), universe).map((e) => e.rule)).toEqual(['club-limit']);
+
+    const result = repairSquad(picksFor(elements), ranked, universe);
+    expect(result.repaired).toBe(true);
+    expect(validateSquad(result.picks, universe)).toEqual([]);
+    // And it took the legal alternatives, not the same-club decoys.
+    const repairedIds = new Set(result.picks.map((p) => p.element));
+    for (const decoy of club1Decoys) expect(repairedIds.has(decoy.id)).toBe(false);
+  });
+
   it('repairs a wrong position count by pulling in a next-ranked player of the deficient position', () => {
     // 3 GK, 4 DEF instead of 2 GK, 5 DEF.
     const thirdGk = makeElement({ id: 505, element_type: Position.GK, team: 7, now_cost: 40 });
@@ -695,7 +759,7 @@ describe('decideSquad retry loop', () => {
     // rule ever runs, naming the offending id so the retry prompt is
     // actionable.
     expect(provider.calls[1]!.messages[1]!.content).toContain(
-      '"picks" must be 15 distinct ids; 101 appears more than once',
+      'squad must be 15 distinct ids; 101 appears more than once',
     );
 
     // The returned picks get a placeholder starting formation (decideLineup's

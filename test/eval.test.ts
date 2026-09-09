@@ -16,12 +16,7 @@ import { describe, expect, it } from 'vitest';
 import { isLegalSquad } from '../src/optimizer/squad';
 import { CappedBudget, UnlimitedBudget } from '../eval/core/budget';
 import { JsonlRecorder, runSuite } from '../eval/core/runner';
-import {
-  ReplayAi,
-  listCassetteKeys,
-  writeCassette,
-  writeErrorCassette,
-} from '../eval/core/replayAi';
+import { ReplayAi, listCassetteKeys, writeRunCassettes } from '../eval/core/replayAi';
 import { restAiFromEnv } from '../eval/core/restAi';
 import { formatConsoleTable, summarize, writeReport } from '../eval/core/report';
 import { fantasyTasks } from '../eval/suites/fantasy/tasks';
@@ -259,11 +254,7 @@ describe.skipIf(!live)('eval live lane', () => {
       repeats,
     });
 
-    for (const call of ai.calls) {
-      if (call.error !== undefined)
-        writeErrorCassette(CASSETTE_DIR, call.model, call.input, call.error);
-      else writeCassette(CASSETTE_DIR, call.model, call.input, call.envelope);
-    }
+    writeRunCassettes(CASSETTE_DIR, ai.calls);
 
     const summary = summarize(result);
     recorder.flush();
