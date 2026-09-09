@@ -1,21 +1,36 @@
 ### case: lineup-gw2
 ### system
-You pick a starting XI, bench order, captain and vice-captain from a 15-player Fantasy Liga Portugal (Betclic) squad. Starting XI is exactly 11, chosen only from the 15 owned players: GK 1-1, DEF 3-5, MID 2-5, FWD 1-3. Bench is the remaining 4, ordered best-to-worst. Captain and vice-captain must both be among the 11 starters and must be different players. Maximise total expected points (xpts), with the captain's points doubled. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - a starter who is actually injured or suspended scores nothing, so treat "news" as the most important signal for who starts and who is captain. Respond using the JSON schema only: the starter ids, the bench ids in order, the captain id, the vice-captain id, and one short reason.
+You pick a starting XI and captain/vice-captain from a 15-player Fantasy Liga Portugal (Betclic) squad. Starting XI is exactly 11, chosen only from the 15 owned players: 1 GK, 3 DEF, 2 MID, 1 FWD, plus 4 more outfield players (DEF, MID or FWD, never a second GK). Bench is the other 4 owned players, derived automatically - it is not part of the answer. captain and vice_captain are indices 0-10 into the XI ordered gk, def, mid, fwd, flex, not element ids, and must differ. Maximise total expected points (xpts), with the captain's points doubled. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - a starter who is actually injured or suspended scores nothing, so treat "news" as the most important signal for who starts and who is captain. Respond using the JSON schema only: one list of ids per position (gk/def/mid/fwd), one flex list of outfield ids, an integer captain index, an integer vice-captain index, and one short reason.
 ### user
-Owned squad (15 players):
+Owned squad is grouped by position. Each group below fills the answer list of the same name; "flex" takes 4 MORE outfield ids on top of the ones already named in the DEF/MID/FWD groups. The starting XI is the concatenation gk, def, mid, fwd, flex in that order; captain and vice_captain are the 0-based index of a player within that concatenation (0-10), not an element id.
+
+## GK (2 owned) - choose exactly 1 of these into "gk", filling XI index 0.
+id|name|pos|club|cost|xpts|form|mins|news?
+148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270
+242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360
+
+## DEF (5 owned) - choose exactly 3 of these into "def", filling XI index 1-3. Any not chosen for "def" are also eligible for "flex".
 id|name|pos|club|cost|xpts|form|mins|news?
 7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117
-9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275
 13|Robinho|DEF|AVFC|4.5|3.7|3.0|360
-75|Baeza|MID|CDN|5.0|4.1|3.2|282
-77|Liziero|MID|CDN|5.0|4.4|5.0|337
-148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270
 187|Fontán|DEF|FCA|5.2|3.1|7.0|360
-242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360
-264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308
-405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295
-436|Prestianni|MID|SLB|8.2|4.7|8.7|250
-539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159
-544|Zalazar|MID|SCP|10.5|5.5|5.5|347
 618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0
 640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0
+
+## MID (5 owned) - choose exactly 2 of these into "mid", filling XI index 4-5. Any not chosen for "mid" are also eligible for "flex".
+id|name|pos|club|cost|xpts|form|mins|news?
+75|Baeza|MID|CDN|5.0|4.1|3.2|282
+77|Liziero|MID|CDN|5.0|4.4|5.0|337
+264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308
+436|Prestianni|MID|SLB|8.2|4.7|8.7|250
+544|Zalazar|MID|SCP|10.5|5.5|5.5|347
+
+## FWD (3 owned) - choose exactly 1 of these into "fwd", filling XI index 6. Any not chosen for "fwd" are also eligible for "flex".
+id|name|pos|club|cost|xpts|form|mins|news?
+9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275
+405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295
+539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159
+
+## flex - choose exactly 4 MORE outfield ids (from the DEF, MID or FWD blocks above, never a goalkeeper) into "flex", filling XI index 7-10.
+
+Starting XI is exactly 11, chosen only from the 15 owned players: 1 GK, 3 DEF, 2 MID, 1 FWD, plus 4 more outfield players (DEF, MID or FWD, never a second GK). Bench is the other 4 owned players, derived automatically - it is not part of the answer. captain and vice_captain are indices 0-10 into the XI ordered gk, def, mid, fwd, flex, not element ids, and must differ. All 11 ids across gk/def/mid/fwd/flex must be distinct.

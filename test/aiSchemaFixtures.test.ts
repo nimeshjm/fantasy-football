@@ -79,7 +79,9 @@ describe('the real json-schema-lineup.json capture (starters has a duplicate id,
     // error names the offending id so a retry prompt (src/ai/decide.ts) can
     // tell the model exactly what was wrong.
     const text = extractResponseTextForTest(jsonSchemaLineup.envelope);
-    const result = parseLineupResult(text!);
+    // Empty owned selects parseLineupResult's legacy flat-shape branch,
+    // which this capture predates the per-position schema and is written in.
+    const result = parseLineupResult(text!, []);
 
     expect(result.ok).toBe(false);
     if (result.ok) throw new Error('unreachable');

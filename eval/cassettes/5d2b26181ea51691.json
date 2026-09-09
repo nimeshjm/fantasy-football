@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-09T09:40:44.614Z",
+    "capturedAt": "2026-09-09T10:28:01.442Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -81,7 +81,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"def\": [7, 13, 238, 389, 475], \"fwd\": [9, 131, 405], \"gk\": [80, 383], \"mid\": [75, 77, 323, 436, 544], \"reason\": \"Optimal squad within budget and club constraints\"}",
+          "content": "{\"def\": [7, 13, 151, 238, 389], \"fwd\": [9, 131, 405], \"gk\": [80, 383], \"mid\": [77, 128, 323, 436, 544], \"reason\": \"Maximising expected points while adhering to budget and club constraints\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -92,9 +92,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788946796,
+    "created": 1788949646,
     "ec_transfer_params": null,
-    "id": "chatcmpl-5587f454-4068-4f73-ad22-637443c53fce",
+    "id": "chatcmpl-c7547e4e-e07e-479f-861f-681692e729b7",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -106,9 +106,9 @@
       "def": [
         7,
         13,
+        151,
         238,
-        389,
-        475
+        389
       ],
       "fwd": [
         9,
@@ -120,24 +120,24 @@
         383
       ],
       "mid": [
-        75,
         77,
+        128,
         323,
         436,
         544
       ],
-      "reason": "Optimal squad within budget and club constraints"
+      "reason": "Maximising expected points while adhering to budget and club constraints"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 1796,
-      "completion_tokens": 73,
-      "total_tokens": 1869,
+      "completion_tokens": 78,
+      "total_tokens": 1874,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 62.845924377441406
+      "neurons": 63.86994934082031
     }
   }
 }

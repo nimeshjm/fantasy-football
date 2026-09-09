@@ -371,3 +371,18 @@ describe('SQUAD_SCHEMA', () => {
     expect(SQUAD_SCHEMA.required).toEqual(['gk', 'def', 'mid', 'fwd', 'reason']);
   });
 });
+
+describe("RULES: the invariant buildLineupSchema's formation-maxima argument depends on", () => {
+  it('squadSelect equals play.max for DEF, MID and FWD, and GK is the documented exception', () => {
+    // buildLineupSchema's doc comment (src/ai/schemas.ts) argues an XI drawn
+    // from the owned squad can't exceed a play maximum because squadSelect
+    // already equals it, for every position but GK. If RULES ever changes so
+    // one of these diverges, that argument silently stops holding - this is
+    // what would catch it.
+    for (const position of [Position.DEF, Position.MID, Position.FWD] as const) {
+      expect(RULES.squadSelect[position]).toBe(RULES.play[position].max);
+    }
+    expect(RULES.squadSelect[Position.GK]).toBe(2);
+    expect(RULES.play[Position.GK].max).toBe(1);
+  });
+});

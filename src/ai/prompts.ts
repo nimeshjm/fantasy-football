@@ -9,6 +9,7 @@
  */
 
 import { Position, RULES, type Element } from '../types';
+import { LINEUP_FLEX_SLOTS } from './schemas';
 
 /** Position codes used in every player line, deliberately matching the
  * English abbreviations the rule text uses (GK/DEF/MID/FWD) rather than
@@ -96,7 +97,7 @@ const PROMPT_POSITION_CODE: Record<Position, string> = {
  * here: the `json_schema` sent to Workers AI does NOT consume prompt tokens
  * (ruled out during this issue's investigation - SQUAD_SCHEMA is the
  * smallest of the three json_schema captures' schemas and has the largest
- * gap; LINEUP_SCHEMA is the largest and over-estimates already, the
+ * gap; the lineup schema is the largest and over-estimates already, the
  * opposite of what schema-cost accounting would predict).
  *
  * `plain-text-prose` MUST stay in the calibration set even though it is the
@@ -155,13 +156,14 @@ const SQUAD_RULES_TEXT =
   `Max ${RULES.teamLimit} players from the same club.`;
 
 const LINEUP_RULES_TEXT =
-  `Starting XI is exactly 11, chosen only from the 15 owned players: ` +
-  `GK ${RULES.play[Position.GK].min}-${RULES.play[Position.GK].max}, ` +
-  `DEF ${RULES.play[Position.DEF].min}-${RULES.play[Position.DEF].max}, ` +
-  `MID ${RULES.play[Position.MID].min}-${RULES.play[Position.MID].max}, ` +
-  `FWD ${RULES.play[Position.FWD].min}-${RULES.play[Position.FWD].max}. ` +
-  `Bench is the remaining 4, ordered best-to-worst. Captain and vice-captain must both ` +
-  `be among the 11 starters and must be different players.`;
+  `Starting XI is exactly ${RULES.squadPlay}, chosen only from the ${RULES.squadSize} owned ` +
+  `players: ${RULES.play[Position.GK].min} GK, ${RULES.play[Position.DEF].min} DEF, ` +
+  `${RULES.play[Position.MID].min} MID, ${RULES.play[Position.FWD].min} FWD, plus ` +
+  `${LINEUP_FLEX_SLOTS} more outfield players (DEF, MID or FWD, never a second GK). Bench is ` +
+  `the other ${RULES.squadSize - RULES.squadPlay} owned players, derived automatically - it is ` +
+  `not part of the answer. captain and vice_captain are indices ` +
+  `0-${RULES.squadPlay - 1} into the XI ordered gk, def, mid, fwd, flex, not element ids, and ` +
+  `must differ.`;
 
 function formatCost(nowCostTenths: number): string {
   return (nowCostTenths / 10).toFixed(1);
@@ -247,17 +249,70 @@ export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
   return { system, user };
 }
 
-/** Pick XI, bench order, captain and vice from the owned 15. */
+const LINEUP_POSITION_ORDER = [Position.GK, Position.DEF, Position.MID, Position.FWD] as const;
+
+/**
+ * Owned squad split into one block per position, each headed with the exact
+ * count it sends into its own answer list and the XI indices that list
+ * fills. captain/vice_captain are read as a position in the gk/def/mid/fwd/
+ * flex concatenation, so each block states its slice of that order before
+ * the model ever reaches the schema - the same reasoning as
+ * `squadCandidateBlocks`, applied to an index scheme instead of a count.
+ */
+function lineupCandidateBlocks(owned: ShortlistEntry[]): string {
+  const byPosition = new Map<Position, ShortlistEntry[]>();
+  for (const position of LINEUP_POSITION_ORDER) byPosition.set(position, []);
+  for (const entry of owned) byPosition.get(entry.element.element_type)?.push(entry);
+
+  const blocks: string[] = [];
+  let xiIndex = 0;
+  for (const position of LINEUP_POSITION_ORDER) {
+    const entries = byPosition.get(position) ?? [];
+    const code = PROMPT_POSITION_CODE[position];
+    const count = RULES.play[position].min;
+    const indexRange = count === 1 ? `${xiIndex}` : `${xiIndex}-${xiIndex + count - 1}`;
+    const flexNote =
+      position === Position.GK
+        ? ''
+        : ` Any not chosen for "${code.toLowerCase()}" are also eligible for "flex".`;
+    blocks.push(
+      `## ${code} (${entries.length} owned) - choose exactly ${count} of these into ` +
+        `"${code.toLowerCase()}", filling XI index ${indexRange}.${flexNote}\n` +
+        `${PLAYER_LINE_HEADER}\n${entries.map(formatPlayerLine).join('\n')}`,
+    );
+    xiIndex += count;
+  }
+  const flexRange = `${xiIndex}-${xiIndex + LINEUP_FLEX_SLOTS - 1}`;
+  blocks.push(
+    `## flex - choose exactly ${LINEUP_FLEX_SLOTS} MORE outfield ids (from the DEF, MID or FWD ` +
+      `blocks above, never a goalkeeper) into "flex", filling XI index ${flexRange}.`,
+  );
+  return blocks.join('\n\n');
+}
+
+/** Pick a starting XI and captain/vice from the owned 15; the bench is derived, not asked for. */
 export function buildLineupPrompt(owned: ShortlistEntry[]): BuiltPrompt {
   const system =
-    `You pick a starting XI, bench order, captain and vice-captain from a 15-player Fantasy ` +
+    `You pick a starting XI and captain/vice-captain from a ${RULES.squadSize}-player Fantasy ` +
     `Liga Portugal (Betclic) squad. ${LINEUP_RULES_TEXT} Maximise total expected points (xpts), ` +
     `with the captain's points doubled. A player's "news" field is a Portuguese injury/` +
     `suspension note not reflected in xpts - a starter who is actually injured or suspended ` +
     `scores nothing, so treat "news" as the most important signal for who starts and who is ` +
-    `captain. Respond using the JSON schema only: the starter ids, the bench ids in order, the ` +
-    `captain id, the vice-captain id, and one short reason.`;
-  const user = playerListBlock('Owned squad', owned);
+    `captain. Respond using the JSON schema only: one list of ids per position (gk/def/mid/fwd), ` +
+    `one flex list of outfield ids, an integer captain index, an integer vice-captain index, and ` +
+    `one short reason.`;
+  // The index scheme and constraints are restated after the candidates as well as before
+  // them: the list is long enough that the system message is thousands of tokens behind
+  // the point where captain/vice_captain are generated, and a wrong index there is a real
+  // recorded failure (an `injured-star` answer captained a benched player).
+  const user =
+    `Owned squad is grouped by position. Each group below fills the answer list of the same ` +
+    `name; "flex" takes ${LINEUP_FLEX_SLOTS} MORE outfield ids on top of the ones already named ` +
+    `in the DEF/MID/FWD groups. The starting XI is the concatenation gk, def, mid, fwd, flex in ` +
+    `that order; captain and vice_captain are the 0-based index of a player within that ` +
+    `concatenation (0-${RULES.squadPlay - 1}), not an element id.\n\n` +
+    `${lineupCandidateBlocks(owned)}\n\n` +
+    `${LINEUP_RULES_TEXT} All ${RULES.squadPlay} ids across gk/def/mid/fwd/flex must be distinct.`;
   return { system, user };
 }
 

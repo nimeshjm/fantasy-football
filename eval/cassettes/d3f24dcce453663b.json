@@ -1,0 +1,205 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-09T10:28:01.447Z",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You pick a starting XI and captain/vice-captain from a 15-player Fantasy Liga Portugal (Betclic) squad. Starting XI is exactly 11, chosen only from the 15 owned players: 1 GK, 3 DEF, 2 MID, 1 FWD, plus 4 more outfield players (DEF, MID or FWD, never a second GK). Bench is the other 4 owned players, derived automatically - it is not part of the answer. captain and vice_captain are indices 0-10 into the XI ordered gk, def, mid, fwd, flex, not element ids, and must differ. Maximise total expected points (xpts), with the captain's points doubled. A player's \"news\" field is a Portuguese injury/suspension note not reflected in xpts - a starter who is actually injured or suspended scores nothing, so treat \"news\" as the most important signal for who starts and who is captain. Respond using the JSON schema only: one list of ids per position (gk/def/mid/fwd), one flex list of outfield ids, an integer captain index, an integer vice-captain index, and one short reason."
+      },
+      {
+        "role": "user",
+        "content": "Owned squad is grouped by position. Each group below fills the answer list of the same name; \"flex\" takes 4 MORE outfield ids on top of the ones already named in the DEF/MID/FWD groups. The starting XI is the concatenation gk, def, mid, fwd, flex in that order; captain and vice_captain are the 0-based index of a player within that concatenation (0-10), not an element id.\n\n## GK (2 owned) - choose exactly 1 of these into \"gk\", filling XI index 0.\nid|name|pos|club|cost|xpts|form|mins|news?\n1|P1|GK|C1|4.0|9.0|0.0|900\n2|P2|GK|C2|4.0|3.0|0.0|900\n\n## DEF (5 owned) - choose exactly 3 of these into \"def\", filling XI index 1-3. Any not chosen for \"def\" are also eligible for \"flex\".\nid|name|pos|club|cost|xpts|form|mins|news?\n3|P3|DEF|C1|4.0|4.5|0.0|900\n4|P4|DEF|C2|4.0|4.3|0.0|900\n5|P5|DEF|C3|4.0|4.1|0.0|900\n6|P6|DEF|C4|4.5|3.9|0.0|900\n7|P7|DEF|C5|4.5|3.7|0.0|900\n\n## MID (5 owned) - choose exactly 2 of these into \"mid\", filling XI index 4-5. Any not chosen for \"mid\" are also eligible for \"flex\".\nid|name|pos|club|cost|xpts|form|mins|news?\n8|P8|MID|C1|5.0|5.5|0.0|900\n9|P9|MID|C2|5.0|5.3|0.0|900\n10|P10|MID|C3|5.5|5.1|0.0|900\n11|P11|MID|C6|5.5|4.9|0.0|900\n12|P12|MID|C7|6.0|4.7|0.0|900\n\n## FWD (3 owned) - choose exactly 1 of these into \"fwd\", filling XI index 6. Any not chosen for \"fwd\" are also eligible for \"flex\".\nid|name|pos|club|cost|xpts|form|mins|news?\n13|P13|FWD|C3|6.0|8.8|0.0|900\n14|P14|FWD|C4|6.5|8.6|0.0|900\n15|P15|FWD|C8|7.0|6.0|0.0|900\n\n## flex - choose exactly 4 MORE outfield ids (from the DEF, MID or FWD blocks above, never a goalkeeper) into \"flex\", filling XI index 7-10.\n\nStarting XI is exactly 11, chosen only from the 15 owned players: 1 GK, 3 DEF, 2 MID, 1 FWD, plus 4 more outfield players (DEF, MID or FWD, never a second GK). Bench is the other 4 owned players, derived automatically - it is not part of the answer. captain and vice_captain are indices 0-10 into the XI ordered gk, def, mid, fwd, flex, not element ids, and must differ. All 11 ids across gk/def/mid/fwd/flex must be distinct.\n\nYour previous answer was invalid: the starting XI must be 11 distinct ids; 8 appears more than once\nCorrect this and answer again."
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "type": "object",
+        "properties": {
+          "gk": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "enum": [
+                1,
+                2
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1,
+            "description": "The 1 starting GK element id(s)."
+          },
+          "def": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "enum": [
+                3,
+                4,
+                5,
+                6,
+                7
+              ]
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "The 3 starting DEF element id(s)."
+          },
+          "mid": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "enum": [
+                8,
+                9,
+                10,
+                11,
+                12
+              ]
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "The 2 starting MID element id(s)."
+          },
+          "fwd": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "enum": [
+                13,
+                14,
+                15
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 1,
+            "description": "The 1 starting FWD element id(s)."
+          },
+          "flex": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "enum": [
+                3,
+                4,
+                5,
+                6,
+                7,
+                8,
+                9,
+                10,
+                11,
+                12,
+                13,
+                14,
+                15
+              ]
+            },
+            "minItems": 4,
+            "maxItems": 4,
+            "description": "The remaining 4 starting outfield element ids (DEF, MID or FWD)."
+          },
+          "captain": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Position of the captain in the starting XI, counting gk, def, mid, fwd then flex from 0."
+          },
+          "vice_captain": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 10,
+            "description": "Position of the vice-captain in the starting XI, same counting, and not the captain's."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "gk",
+          "def",
+          "mid",
+          "fwd",
+          "flex",
+          "captain",
+          "vice_captain",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "max_tokens": 500
+  },
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "{\"captain\": 6, \"def\": [3, 4, 5], \"flex\": [9, 10, 14, 7], \"fwd\": [13], \"gk\": [1], \"mid\": [8, 11], \"reason\": \"Maximising expected points, considering news.\", \"vice_captain\": 0}",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788949673,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-871f73ea-07b7-4b1e-be3a-f0a19c53c5eb",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-json",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": {
+      "captain": 6,
+      "def": [
+        3,
+        4,
+        5
+      ],
+      "flex": [
+        9,
+        10,
+        14,
+        7
+      ],
+      "fwd": [
+        13
+      ],
+      "gk": [
+        1
+      ],
+      "mid": [
+        8,
+        11
+      ],
+      "reason": "Maximising expected points, considering news.",
+      "vice_captain": 0
+    },
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 1149,
+      "completion_tokens": 80,
+      "total_tokens": 1229,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 47.025577545166016
+    }
+  }
+}

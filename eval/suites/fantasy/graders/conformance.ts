@@ -10,23 +10,39 @@ import {
   parseLineupResult,
   parseSquadResult,
   parseTransferResult,
+  type LineupOwned,
   type ParseResult,
 } from '../../../../src/ai/schemas';
 import {
   validateLineup,
   validateSquad,
   validateTransfer,
-  type OwnedPlayer,
   type TransferCandidate,
 } from '../../../../src/ai/validate';
-import type { AttemptRecord, EvalCase, Grader, Score, TaskOutcome } from '../../../core/types';
+import type {
+  AttemptRecord,
+  CaseInput,
+  EvalCase,
+  Grader,
+  Score,
+  TaskOutcome,
+} from '../../../core/types';
 
-function parseByKind(kind: DecisionKind, text: string): ParseResult<unknown> {
+function lineupOwnedFrom(c: EvalCase<CaseInput>): LineupOwned[] {
+  if (c.input.kind !== 'lineup') return [];
+  return c.input.owned.map((o) => ({
+    element: o.element.id,
+    position: o.element.element_type,
+    xpts: o.xpts,
+  }));
+}
+
+function parseByKind(kind: DecisionKind, text: string, owned: LineupOwned[]): ParseResult<unknown> {
   switch (kind) {
     case 'squad':
       return parseSquadResult(text);
     case 'lineup':
-      return parseLineupResult(text);
+      return parseLineupResult(text, owned);
     case 'transfer':
       return parseTransferResult(text);
   }
@@ -38,14 +54,15 @@ function attemptReachedProvider(a: AttemptRecord): boolean {
 
 export const conformanceGrader: Grader = {
   id: 'conformance',
-  grade(_c: EvalCase, o: TaskOutcome): Score[] {
+  grade(c: EvalCase, o: TaskOutcome): Score[] {
     const attempts = o.attempts;
     const attempt0 = attempts[0];
+    const owned = lineupOwnedFrom(c);
 
     const parseOk1 =
-      attempt0?.rawResponse !== undefined && parseByKind(o.kind, attempt0.rawResponse).ok;
+      attempt0?.rawResponse !== undefined && parseByKind(o.kind, attempt0.rawResponse, owned).ok;
     const parseOkAny = attempts.some(
-      (a) => a.rawResponse !== undefined && parseByKind(o.kind, a.rawResponse).ok,
+      (a) => a.rawResponse !== undefined && parseByKind(o.kind, a.rawResponse, owned).ok,
     );
 
     // Skips never reached the provider, so they carry no refusal/truncation/
@@ -101,7 +118,8 @@ function judgeLegality(c: EvalCase, attempt0: AttemptRecord | undefined): Legali
       return { parsed: true, errors: validateSquad(picks, input.elements) };
     }
     case 'lineup': {
-      const parsed = parseLineupResult(text);
+      const lineupOwned = lineupOwnedFrom(c);
+      const parsed = parseLineupResult(text, lineupOwned);
       if (!parsed.ok) return { parsed: false, errors: [] };
       const { starters, bench, captain, vice_captain } = parsed.value;
       const picks: Pick[] = [
@@ -118,11 +136,7 @@ function judgeLegality(c: EvalCase, attempt0: AttemptRecord | undefined): Legali
           is_vice_captain: element === vice_captain,
         })),
       ];
-      const owned: OwnedPlayer[] = input.owned.map((o) => ({
-        element: o.element.id,
-        position: o.element.element_type,
-      }));
-      return { parsed: true, errors: validateLineup(picks, owned) };
+      return { parsed: true, errors: validateLineup(picks, lineupOwned) };
     }
     case 'transfer': {
       const parsed = parseTransferResult(text);

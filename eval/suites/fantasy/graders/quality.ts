@@ -3,6 +3,7 @@ import {
   parseLineupResult,
   parseSquadResult,
   parseTransferResult,
+  type LineupOwned,
 } from '../../../../src/ai/schemas';
 import type {
   AttemptRecord,
@@ -59,17 +60,23 @@ function jaccardDistance(a: Set<number>, b: Set<number>): number {
  * against gate_accept_rate 0.333 / 1.000 / 0.333, and the apparent
  * differentiation gain was only the gate accepting more often.
  */
-function modelAnswerIds(
-  kind: EvalCase['input']['kind'],
-  attempts: AttemptRecord[],
-): Set<number> | undefined {
+function modelAnswerIds(c: EvalCase, attempts: AttemptRecord[]): Set<number> | undefined {
+  const kind = c.input.kind;
+  const lineupOwned: LineupOwned[] =
+    c.input.kind === 'lineup'
+      ? c.input.owned.map((o) => ({
+          element: o.element.id,
+          position: o.element.element_type,
+          xpts: o.xpts,
+        }))
+      : [];
   for (const a of [...attempts].reverse()) {
     if (a.rawResponse === undefined) continue;
     if (kind === 'squad') {
       const parsed = parseSquadResult(a.rawResponse);
       if (parsed.ok) return new Set(parsed.value.picks);
     } else if (kind === 'lineup') {
-      const parsed = parseLineupResult(a.rawResponse);
+      const parsed = parseLineupResult(a.rawResponse, lineupOwned);
       if (parsed.ok) return new Set(parsed.value.starters);
     } else {
       const parsed = parseTransferResult(a.rawResponse);
@@ -85,7 +92,7 @@ function modelAnswerIds(
 }
 
 function differentiation(c: EvalCase, o: TaskOutcome): number {
-  const model = modelAnswerIds(c.input.kind, o.attempts);
+  const model = modelAnswerIds(c, o.attempts);
   // No attempt parsed, so there is no model answer to be different from the
   // reference -- 0 would read as "identical to the optimizer".
   if (model === undefined) return NaN;

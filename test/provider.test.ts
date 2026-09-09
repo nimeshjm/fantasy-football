@@ -1,8 +1,36 @@
 import { describe, expect, it } from 'vitest';
 
 import { estimateNeurons, extractResponseTextForTest, WorkersAiProvider } from '../src/ai/provider';
-import { LINEUP_SCHEMA, SQUAD_SCHEMA, TRANSFER_SCHEMA } from '../src/ai/schemas';
+import {
+  buildLineupSchema,
+  SQUAD_SCHEMA,
+  TRANSFER_SCHEMA,
+  type LineupOwned,
+} from '../src/ai/schemas';
+import { Position } from '../src/types';
 import { StubAi } from './stubs/workersAi';
+
+/** An owned 15 (2 GK, 5 DEF, 5 MID, 3 FWD - matching RULES.squadSelect) for
+ * `buildLineupSchema`, which needs a real squad to derive its id `enum`s
+ * from. Only the shape matters here, not any particular player. */
+const SAMPLE_OWNED: LineupOwned[] = [
+  { element: 101, position: Position.GK, xpts: 3.1 },
+  { element: 102, position: Position.GK, xpts: 3.6 },
+  { element: 201, position: Position.DEF, xpts: 4.2 },
+  { element: 202, position: Position.DEF, xpts: 4.4 },
+  { element: 203, position: Position.DEF, xpts: 4.0 },
+  { element: 204, position: Position.DEF, xpts: 3.6 },
+  { element: 205, position: Position.DEF, xpts: 3.1 },
+  { element: 301, position: Position.MID, xpts: 6.2 },
+  { element: 302, position: Position.MID, xpts: 6.5 },
+  { element: 303, position: Position.MID, xpts: 5.9 },
+  { element: 304, position: Position.MID, xpts: 5.1 },
+  { element: 305, position: Position.MID, xpts: 4.4 },
+  { element: 401, position: Position.FWD, xpts: 7.1 },
+  { element: 402, position: Position.FWD, xpts: 6.8 },
+  { element: 403, position: Position.FWD, xpts: 6.6 },
+];
+const LINEUP_SCHEMA = buildLineupSchema(SAMPLE_OWNED);
 
 import jsonSchemaSquad from './fixtures/workers-ai/json-schema-squad.json';
 import jsonSchemaLineup from './fixtures/workers-ai/json-schema-lineup.json';
@@ -186,6 +214,40 @@ describe('WorkersAiProvider.complete() against recorded envelopes', () => {
     // The binding defaults max_tokens to 256, truncating every answer
     // mid-JSON - it MUST be sent explicitly.
     expect(input.max_tokens).toBe(400);
+  });
+
+  it('sends a buildLineupSchema(owned) result as the RAW schema object under response_format.json_schema, unwrapped', async () => {
+    const ai = new StubAi(jsonSchemaLineup.envelope);
+    const provider = new WorkersAiProvider(ai as unknown as Ai);
+
+    await provider.complete({
+      messages: [{ role: 'system', content: 'sys' }],
+      jsonSchema: LINEUP_SCHEMA,
+      maxTokens: 400,
+    });
+
+    expect(ai.calls).toHaveLength(1);
+    const input = ai.calls[0]!.input;
+    expect(input.response_format).toEqual({ type: 'json_schema', json_schema: LINEUP_SCHEMA });
+    // The capture records the old flat `starters`/`bench` schema, which
+    // predates buildLineupSchema's per-position split - so, as with
+    // SQUAD_SCHEMA above, this can't assert equality with LINEUP_SCHEMA. It
+    // pins the same wire contract instead: Workers AI recorded the schema
+    // raw and unwrapped, exactly as sent.
+    const recorded = jsonSchemaLineup.request.response_format.json_schema as Record<
+      string,
+      unknown
+    >;
+    expect(recorded).toMatchObject({ type: 'object', additionalProperties: false });
+    expect(recorded).toHaveProperty('properties');
+    expect(recorded).not.toHaveProperty('name');
+    expect(recorded).not.toHaveProperty('schema');
+    expect((input.response_format as { json_schema: unknown }).json_schema).not.toHaveProperty(
+      'name',
+    );
+    expect((input.response_format as { json_schema: unknown }).json_schema).not.toHaveProperty(
+      'schema',
+    );
   });
 
   it('returns {ok: false, error} and never throws when env.AI.run throws (e.g. "JSON Mode couldn\'t be met")', async () => {

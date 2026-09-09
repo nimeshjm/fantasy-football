@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-09T09:40:44.619Z",
+    "capturedAt": "2026-09-09T10:28:01.448Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"element_in\": 7, \"element_out\": 102, \"reason\": \"Highest gain among candidates\"}",
+          "content": "{\"element_in\": 7, \"element_out\": 102, \"reason\": \"Highest gain\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788946841,
+    "created": 1788949678,
     "ec_transfer_params": null,
-    "id": "chatcmpl-db1d4308-36e0-43ba-9a92-d353e4ac219b",
+    "id": "chatcmpl-6a2a1869-8fea-4697-b6c8-79f542b1117c",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -75,18 +75,18 @@
     "response": {
       "element_in": 7,
       "element_out": 102,
-      "reason": "Highest gain among candidates"
+      "reason": "Highest gain"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 1559,
-      "completion_tokens": 24,
-      "total_tokens": 1583,
+      "completion_tokens": 22,
+      "total_tokens": 1581,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 46.49022674560547
+      "neurons": 46.08061599731445
     }
   }
 }

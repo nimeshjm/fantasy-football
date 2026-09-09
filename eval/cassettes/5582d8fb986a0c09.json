@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-09T09:40:44.615Z",
+    "capturedAt": "2026-09-09T10:28:01.443Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -81,7 +81,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"def\": [62, 187, 238, 389, 554], \"fwd\": [202, 384, 405], \"gk\": [80, 383], \"mid\": [200, 296, 541, 592, 560], \"reason\": \"Maximising expected points while respecting budget and club constraints.\"}",
+          "content": "{\"def\": [62, 187, 238, 389, 647], \"fwd\": [202, 384, 405], \"gk\": [80, 383], \"mid\": [200, 296, 541, 592, 649], \"reason\": \"Maximising expected points while respecting club and budget constraints.\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -92,9 +92,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788946798,
+    "created": 1788949649,
     "ec_transfer_params": null,
-    "id": "chatcmpl-5e429a66-9dae-444c-856d-403cf25ce95a",
+    "id": "chatcmpl-deb2ee16-42eb-43a9-bbe1-2efba8f4314f",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -108,7 +108,7 @@
         187,
         238,
         389,
-        554
+        647
       ],
       "fwd": [
         202,
@@ -124,9 +124,9 @@
         296,
         541,
         592,
-        560
+        649
       ],
-      "reason": "Maximising expected points while respecting budget and club constraints."
+      "reason": "Maximising expected points while respecting club and budget constraints."
     },
     "service_tier": null,
     "tool_calls": [],

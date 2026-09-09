@@ -45,12 +45,13 @@ import {
   type TransferCandidateEntry,
 } from './prompts';
 import {
-  LINEUP_SCHEMA,
   SQUAD_SCHEMA,
   TRANSFER_SCHEMA,
+  buildLineupSchema,
   parseLineupResult,
   parseSquadResult,
   parseTransferResult,
+  type LineupOwned,
 } from './schemas';
 import {
   gateDecision,
@@ -597,6 +598,14 @@ function toOwnedPlayers(owned: ShortlistEntry[]): OwnedPlayer[] {
   return owned.map((o) => ({ element: o.element.id, position: o.element.element_type }));
 }
 
+function toLineupOwned(owned: ShortlistEntry[]): LineupOwned[] {
+  return owned.map((o) => ({
+    element: o.element.id,
+    position: o.element.element_type,
+    xpts: o.xpts,
+  }));
+}
+
 function hardLineupViolations(picks: Pick[], elements: Element[]): string[] {
   const byId = new Map(elements.map((e) => [e.id, e] as const));
   const violations: string[] = [];
@@ -614,6 +623,8 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
   const { owned, elements, provider, budget, baseline, audit } = input;
   const maxTokens = input.maxAnswerTokens ?? DEFAULT_MAX_ANSWER_TOKENS.lineup;
   const ownedPlayers = toOwnedPlayers(owned);
+  const lineupOwned = toLineupOwned(owned);
+  const lineupSchema = buildLineupSchema(lineupOwned);
 
   const fallback = (): Decision => ({
     kind: 'lineup',
@@ -630,7 +641,7 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
       provider,
       budget,
       withViolationNote(basePrompt, violationNote),
-      LINEUP_SCHEMA,
+      lineupSchema,
       maxTokens,
       audit,
       'lineup',
@@ -641,7 +652,7 @@ export async function decideLineup(input: DecideLineupInput): Promise<Decision> 
       continue;
     }
 
-    const parsed = parseLineupResult(call.text);
+    const parsed = parseLineupResult(call.text, lineupOwned);
     if (!parsed.ok) {
       violationNote = parsed.error;
       continue;

@@ -18,7 +18,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { Position, type Element, type Pick, type Projection } from '../src/types';
+import { Position, RULES, type Element, type Pick, type Projection } from '../src/types';
 import {
   decideLineup,
   decideSquad,
@@ -286,19 +286,47 @@ function makeOwnedFifteen(): {
   return { elements, owned, starters, bench };
 }
 
-function lineupPayload(starters: Element[], bench: Element[], captain: Element, vice: Element) {
+/** Splits an 11-element starting XI into `buildLineupSchema`'s per-position
+ * shape (each position's `RULES.play` minimum, overflow into `flex`) and
+ * points captain/vice at their index in the XI, built in the same gk/def/
+ * mid/fwd/flex concatenation order `lineupStartersFrom` parses back - so the
+ * index always lands on `captain`/`vice`, never on whichever id happens to
+ * sit there after a reshuffle. Bench is not part of the answer any more
+ * (`parseLineupResult` derives it), so this takes no bench argument. */
+function lineupPayload(startersXi: Element[], captain: Element, vice: Element) {
+  const idsAt = (position: Position): number[] =>
+    startersXi.filter((e) => e.element_type === position).map((e) => e.id);
+  const gk = idsAt(Position.GK);
+  const def = idsAt(Position.DEF);
+  const mid = idsAt(Position.MID);
+  const fwd = idsAt(Position.FWD);
+  const flex = [
+    ...def.slice(RULES.play[Position.DEF].min),
+    ...mid.slice(RULES.play[Position.MID].min),
+    ...fwd.slice(RULES.play[Position.FWD].min),
+  ];
+  const xi = [
+    ...gk.slice(0, RULES.play[Position.GK].min),
+    ...def.slice(0, RULES.play[Position.DEF].min),
+    ...mid.slice(0, RULES.play[Position.MID].min),
+    ...fwd.slice(0, RULES.play[Position.FWD].min),
+    ...flex,
+  ];
   return {
-    starters: starters.map((e) => e.id),
-    bench: bench.map((e) => e.id),
-    captain: captain.id,
-    vice_captain: vice.id,
+    gk: gk.slice(0, RULES.play[Position.GK].min),
+    def: def.slice(0, RULES.play[Position.DEF].min),
+    mid: mid.slice(0, RULES.play[Position.MID].min),
+    fwd: fwd.slice(0, RULES.play[Position.FWD].min),
+    flex,
+    captain: xi.indexOf(captain.id),
+    vice_captain: xi.indexOf(vice.id),
     reason: 'llm lineup',
   };
 }
 
 describe('lineup gate audit trail', () => {
   it('records an OVERRIDE verdict, both scores, and a non-empty override reason when the LLM lineup is well below the optimum', async () => {
-    const { elements, owned, starters, bench } = makeOwnedFifteen();
+    const { elements, owned, starters } = makeOwnedFifteen();
     const llmCaptain = starters[0]!;
     const llmVice = starters[1]!;
     const optimalCaptain = starters[2]!;
@@ -328,7 +356,7 @@ describe('lineup gate audit trail', () => {
     };
     const provider = new StubProvider({
       ok: true,
-      text: JSON.stringify(lineupPayload(starters, bench, llmCaptain, llmVice)),
+      text: JSON.stringify(lineupPayload(starters, llmCaptain, llmVice)),
     });
     const audit = makeCapturingAudit();
 
@@ -356,7 +384,7 @@ describe('lineup gate audit trail', () => {
   });
 
   it('records an ACCEPT verdict with both scores when the LLM lineup clears the absolute floor', async () => {
-    const { elements, owned, starters, bench } = makeOwnedFifteen();
+    const { elements, owned, starters } = makeOwnedFifteen();
     const llmCaptain = starters[0]!;
     const llmVice = starters[1]!;
     const optimalCaptain = starters[2]!;
@@ -385,7 +413,7 @@ describe('lineup gate audit trail', () => {
     };
     const provider = new StubProvider({
       ok: true,
-      text: JSON.stringify(lineupPayload(starters, bench, llmCaptain, llmVice)),
+      text: JSON.stringify(lineupPayload(starters, llmCaptain, llmVice)),
     });
     const audit = makeCapturingAudit();
 
@@ -469,22 +497,20 @@ function buildProjectionsAndOwnedPicks(
 const REAL_STARTER_XPTS = [20, 30, 25, 24, 23, 28, 22, 21, 20, 26, 19];
 const REAL_BENCH_XPTS = [1, 1, 1, 1];
 
-/** Builds the "deliberately bad" LLM lineup: at every position, bench the
- * single highest-xPts starter and start the (lowest-xPts) bench player
- * instead. */
-function benchTheBestAtEveryPosition(
-  starters: Element[],
-  bench: Element[],
-): { badStarters: Element[]; badBench: Element[] } {
+/** Builds the "deliberately bad" LLM starting XI: at every position, bench
+ * the single highest-xPts starter and start the (lowest-xPts) bench player
+ * instead. The complement (the 4 benched-highest players) is no longer
+ * returned - it's not part of the answer any more, `parseLineupResult`
+ * derives the bench from whichever owned players this XI didn't take. */
+function benchTheBestAtEveryPosition(starters: Element[], bench: Element[]): Element[] {
   // Slices matching makeOwnedFifteen's fixed starter layout: [1 GK, 4 DEF,
   // 4 MID, 2 FWD].
-  const gk = starters[0]!;
   const def = starters.slice(1, 5); // best DEF first, weakest last
   const mid = starters.slice(5, 9);
   const fwd = starters.slice(9, 11);
   const [benchGk, benchDef, benchMid, benchFwd] = bench;
 
-  const badStarters = [
+  return [
     benchGk!, // swap out the best (only) GK, swap in the bench GK
     ...def.slice(1), // keep the 3 weaker DEF starters
     benchDef!, // swap in the bench DEF instead of the best one
@@ -493,8 +519,6 @@ function benchTheBestAtEveryPosition(
     fwd[1]!, // keep the weaker FWD starter
     benchFwd!, // swap in the bench FWD instead of the best one
   ];
-  const badBench = [gk, def[0]!, mid[0]!, fwd[0]!]; // the 4 benched-highest players
-  return { badStarters, badBench };
 }
 
 describe('lineup gate with real (non-fake) baseline scoring -- issue #24', () => {
@@ -507,13 +531,13 @@ describe('lineup gate with real (non-fake) baseline scoring -- issue #24', () =>
       REAL_BENCH_XPTS,
     );
     const baseline = makeLineupBaseline(elements, projections, ownedPicks);
-    const { badStarters, badBench } = benchTheBestAtEveryPosition(starters, bench);
+    const badStarters = benchTheBestAtEveryPosition(starters, bench);
 
     // Captain/vice within the bad starting XI -- which two doesn't matter,
     // only that the lineup is otherwise legal.
     const provider = new StubProvider({
       ok: true,
-      text: JSON.stringify(lineupPayload(badStarters, badBench, badStarters[1]!, badStarters[2]!)),
+      text: JSON.stringify(lineupPayload(badStarters, badStarters[1]!, badStarters[2]!)),
     });
     const audit = makeCapturingAudit();
 
@@ -564,11 +588,11 @@ describe('lineup gate with real (non-fake) baseline scoring -- issue #24', () =>
       zeros(4),
     );
     const baseline = makeLineupBaseline(elements, projections, ownedPicks);
-    const { badStarters, badBench } = benchTheBestAtEveryPosition(starters, bench);
+    const badStarters = benchTheBestAtEveryPosition(starters, bench);
 
     const provider = new StubProvider({
       ok: true,
-      text: JSON.stringify(lineupPayload(badStarters, badBench, badStarters[1]!, badStarters[2]!)),
+      text: JSON.stringify(lineupPayload(badStarters, badStarters[1]!, badStarters[2]!)),
     });
     const audit = makeCapturingAudit();
 
