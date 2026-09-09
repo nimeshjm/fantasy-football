@@ -189,6 +189,99 @@ describe('buildShortlist', () => {
     expect(shortlistIds.has(owned.id)).toBe(true);
   });
 
+  it('keeps an owned player but drops a newsworthy one when the club is already at the cap', () => {
+    // The distinction the club cap introduces. An owned player the model
+    // cannot see is one it cannot sell, so owned stays unconditional. News
+    // does not earn a club slot ahead of a better player: a flagged player
+    // left out is one the model cannot pick at all, which serves the same
+    // end as showing it the note. This is what the test above no longer
+    // proves - it passes because its sparse pool leaves club room, not
+    // because news is unconditional.
+    nextElementId = 1;
+    const elements: Element[] = [];
+    const xpts = new Map<number, number>();
+    // One club, deep enough in every position to fill the cap on merit.
+    for (const pos of [Position.GK, Position.DEF, Position.MID, Position.FWD]) {
+      for (let i = 0; i < 6; i++) {
+        const el = makeElement({ element_type: pos, team: 1, now_cost: 40 });
+        elements.push(el);
+        xpts.set(el.id, 100 - i);
+      }
+    }
+    // Enough other clubs that a legal 15 exists without club 1.
+    for (let team = 2; team <= 12; team++) {
+      for (const pos of [Position.GK, Position.DEF, Position.MID, Position.FWD]) {
+        const el = makeElement({ element_type: pos, team, now_cost: 40 });
+        elements.push(el);
+        xpts.set(el.id, 50);
+      }
+    }
+    const flaggedAtFullClub = makeElement({
+      element_type: Position.MID,
+      team: 1,
+      now_cost: 200,
+      news: 'Lesão muscular, fora 3 semanas',
+    });
+    const ownedAtFullClub = makeElement({
+      element_type: Position.FWD,
+      team: 1,
+      now_cost: 200,
+    });
+    elements.push(flaggedAtFullClub, ownedAtFullClub);
+    xpts.set(flaggedAtFullClub.id, 0);
+    xpts.set(ownedAtFullClub.id, 0);
+
+    const projections = projectionFor(elements, 1, xpts);
+    const { shortlist } = buildShortlist(elements, projections, new Set([ownedAtFullClub.id]));
+    const ids = new Set(shortlist.map((e) => e.id));
+
+    expect(ids.has(ownedAtFullClub.id)).toBe(true);
+    expect(ids.has(flaggedAtFullClub.id)).toBe(false);
+  });
+
+  it('never offers more than the cap from any one club, so a squad drawn from it cannot break club-limit', () => {
+    // The guarantee itself, on a league-shaped pool. Across three live eval
+    // runs the model broke club-limit in nearly every squad answer and one
+    // answer holding six from a single club defeated repairSquad outright.
+    // None of that is reachable from a shortlist holding at most three of
+    // any club.
+    nextElementId = 1;
+    const elements: Element[] = [];
+    const xpts = new Map<number, number>();
+    const depth: Record<Position, number> = {
+      [Position.GK]: 3,
+      [Position.DEF]: 7,
+      [Position.MID]: 7,
+      [Position.FWD]: 4,
+    };
+    for (let team = 1; team <= 18; team++) {
+      for (const pos of [Position.GK, Position.DEF, Position.MID, Position.FWD]) {
+        for (let i = 0; i < depth[pos]; i++) {
+          const el = makeElement({ element_type: pos, team, now_cost: 40 + i * 5 });
+          elements.push(el);
+          // Strong clubs score higher, so value-per-cost ranking concentrates
+          // on them and the cap has something to bite on.
+          xpts.set(el.id, (19 - team) * 2 + (depth[pos] - i));
+        }
+      }
+    }
+    const projections = projectionFor(elements, 1, xpts);
+
+    const { shortlist } = buildShortlist(elements, projections);
+    const perClub = new Map<number, number>();
+    for (const e of shortlist) perClub.set(e.team, (perClub.get(e.team) ?? 0) + 1);
+    expect([...perClub.values()].every((n) => n <= RULES.teamLimit)).toBe(true);
+    expect(Math.max(...perClub.values())).toBe(RULES.teamLimit);
+
+    // The cap is configurable, which is what shows this is the cap biting
+    // rather than the pool happening to be thin.
+    const loose = buildShortlist(elements, projections, new Set(), { maxPerClub: 5 });
+    const loosePerClub = new Map<number, number>();
+    for (const e of loose.shortlist) loosePerClub.set(e.team, (loosePerClub.get(e.team) ?? 0) + 1);
+    expect(Math.max(...loosePerClub.values())).toBe(5);
+    expect(loose.shortlist.length).toBeGreaterThan(shortlist.length);
+  });
+
   it('throws ShortlistInvariantError when the full pool cannot form any legal squad', () => {
     nextElementId = 1;
     // Only goalkeepers and midfielders -- RULES.squadSelect requires DEF and

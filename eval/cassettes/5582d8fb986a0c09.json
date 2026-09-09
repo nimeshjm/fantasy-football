@@ -1,0 +1,143 @@
+{
+  "_captured": {
+    "capturedAt": "2026-09-09T09:31:58.704Z",
+    "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+  },
+  "request": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's \"news\" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. Respond using the JSON schema only: one list of ids per position, and one short reason."
+      },
+      {
+        "role": "user",
+        "content": "Candidates are grouped by position. Each group below fills the answer list of the same name, and the schema fixes how many ids that list holds.\n\n## GK - choose exactly 2 of these 8, into \"gk\"\nid|name|pos|club|cost|xpts|form|mins|news?\n27|Ewerton|GK|AVFC|4.0|3.4|2.5|360\n80|Marin|GK|CDN|4.5|3.6|5.0|360\n119|Diogo Pinto|GK|CFEA|4.0|0.0|0.0|0\n120|David Grilo|GK|CFEA|4.5|0.0|0.0|0\n355|Ennio van der Gouw|GK|RAFC|5.0|3.6|4.2|360\n383|Alfonso Pastor|GK|CSM|4.5|3.5|4.2|360\n621|Tiago Ferreira|GK|GVFC|4.0|3.4|0.0|0\n646|Juan Soriano|GK|AVFC|4.5|3.0|0.0|0\n\n## DEF - choose exactly 5 of these 20, into \"def\"\nid|name|pos|club|cost|xpts|form|mins|news?\n7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117\n62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360\n64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360\n108|Antef Tsoungui|DEF|EPF|4.0|2.9|1.5|335\n116|Dramé|DEF|CFEA|4.0|0.0|0.0|0|news:Transferido Definitivamente / Permanent Transfer\n187|Fontán|DEF|FCA|5.2|3.8|7.0|360\n216|Realpe|DEF|FCF|5.0|2.3|4.0|350\n217|Pedro Bondo|DEF|FCF|4.5|2.3|2.8|296\n238|van Breemen|DEF|FCF|4.5|3.1|5.2|360\n278|Elimbi|DEF|GVFC|5.0|3.2|6.3|270\n308|Leandro Santos|DEF|MFC|4.5|0.0|0.7|187\n309|Dinis Pinto|DEF|MFC|5.0|0.0|2.7|135\n310|Gilberto Batista|DEF|MFC|5.0|0.0|3.3|270\n336|Petrasso|DEF|RAFC|4.5|2.7|3.0|345\n389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354\n475|Victor Gómez|DEF|SCB|6.0|0.0|3.5|135\n554|Miguel Maga|DEF|VSC|4.4|2.2|0.8|113\n639|Pedro Amaral|DEF|RAFC|4.5|2.7|0.0|0\n647|Xavi Sintes|DEF|EPF|4.0|2.9|0.0|0\n656|Samuel Amissah|DEF|EPF|4.0|2.9|0.0|0\n\n## MID - choose exactly 5 of these 17, into \"mid\"\nid|name|pos|club|cost|xpts|form|mins|news?\n200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356\n264|Gabri Veiga|MID|FCP|8.3|3.8|9.5|308\n268|Rosario|MID|FCP|6.0|2.4|3.2|302\n296|Joelson Fernandes|MID|GVFC|5.5|3.6|3.3|212\n380|Raphael Guzzo|MID|CSM|4.6|3.3|4.5|328\n479|Gabri Martínez|MID|SCB|6.5|0.0|0.0|0\n480|Ricardo Horta|MID|SCB|9.9|0.0|0.5|57|news:Lesão Muscular / Muscle Injury\n541|Flávio Gonçalves|MID|SCP|6.7|3.8|6.5|256\n544|Zalazar|MID|SCP|10.5|4.7|5.5|347\n560|Samu|MID|VSC|6.5|3.4|4.2|350\n592|Ian Luccas|MID|ALV|4.5|3.4|3.5|291\n632|Aymen Zouin|MID|CPAC|4.5|2.5|0.0|0\n633|Victor Andersson|MID|VSC|5.0|2.7|0.5|14\n638|Zé Rafael|MID|ALV|4.5|2.7|0.0|0\n648|Gabriel Carioca|MID|ALV|4.5|2.7|0.0|0\n649|Pauwels|MID|CPAC|4.5|2.5|2.0|12\n650|Fofana|MID|CDSC|4.5|2.8|0.0|0\n\n## FWD - choose exactly 3 of these 9, into \"fwd\"\nid|name|pos|club|cost|xpts|form|mins|news?\n202|Barbero|FWD|FCA|5.5|3.9|5.0|252\n275|André Silva|FWD|FCP|10.0|4.0|5.0|262\n384|Adrián Butzke|FWD|CSM|5.5|3.3|4.0|325\n405|Gonçalo Paciência|FWD|CDSC|5.8|5.7|7.2|295\n442|Pavlidis|FWD|SLB|12.1|0.0|11.0|227\n455|Ivanović|FWD|SLB|9.0|0.0|0.0|0|news:Emprestado / On Loan\n460|Anísio Cabral|FWD|SLB|7.0|0.0|0.0|0\n539|Ioannidis|FWD|SCP|9.5|6.7|5.2|159\n654|Evans Maurin|FWD|CPAC|4.5|3.0|0.0|0\n\nPut each id in the list for its own group. The two constraints the schema cannot express, and the only ones left to check: at most 3 ids sharing a club across all four lists, and total cost of the 15 at most EUR100.0m."
+      }
+    ],
+    "response_format": {
+      "type": "json_schema",
+      "json_schema": {
+        "type": "object",
+        "properties": {
+          "gk": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 2,
+            "maxItems": 2,
+            "description": "The 2 chosen goalkeeper element ids."
+          },
+          "def": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 5,
+            "maxItems": 5,
+            "description": "The 5 chosen defender element ids."
+          },
+          "mid": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 5,
+            "maxItems": 5,
+            "description": "The 5 chosen midfielder element ids."
+          },
+          "fwd": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            },
+            "minItems": 3,
+            "maxItems": 3,
+            "description": "The 3 chosen forward element ids."
+          },
+          "reason": {
+            "type": "string",
+            "maxLength": 300
+          }
+        },
+        "required": [
+          "gk",
+          "def",
+          "mid",
+          "fwd",
+          "reason"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "max_tokens": 600
+  },
+  "envelope": {
+    "choices": [
+      {
+        "finish_reason": "stop",
+        "index": 0,
+        "logprobs": null,
+        "message": {
+          "annotations": null,
+          "audio": null,
+          "content": "{\"def\": [62, 187, 238, 389, 639], \"fwd\": [202, 384, 405], \"gk\": [80, 383], \"mid\": [200, 296, 541, 592, 560], \"reason\": \"Maximising expected points while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m.\"}",
+          "function_call": null,
+          "reasoning": null,
+          "refusal": null,
+          "role": "assistant"
+        },
+        "routed_experts": null,
+        "stop_reason": null,
+        "token_ids": null
+      }
+    ],
+    "created": 1788946313,
+    "ec_transfer_params": null,
+    "id": "chatcmpl-8a37edfa-fd00-4faa-8884-16969e4bd2c0",
+    "kv_transfer_params": null,
+    "metrics": null,
+    "model": "@cf/meta/llama-3.3-70b-json",
+    "object": "chat.completion",
+    "prompt_logprobs": null,
+    "prompt_text": null,
+    "prompt_token_ids": null,
+    "response": {
+      "def": [
+        62,
+        187,
+        238,
+        389,
+        639
+      ],
+      "fwd": [
+        202,
+        384,
+        405
+      ],
+      "gk": [
+        80,
+        383
+      ],
+      "mid": [
+        200,
+        296,
+        541,
+        592,
+        560
+      ],
+      "reason": "Maximising expected points while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m."
+    },
+    "service_tier": null,
+    "tool_calls": [],
+    "usage": {
+      "prompt_tokens": 1832,
+      "completion_tokens": 95,
+      "total_tokens": 1927,
+      "prompt_tokens_details": {
+        "cached_tokens": 0
+      },
+      "neurons": 68.31167602539062
+    }
+  }
+}

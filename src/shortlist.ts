@@ -15,9 +15,14 @@
  *     squad sanity gate anyway (see `DeterministicBaseline` in
  *     src/ai/decide.ts) -- this module returns it alongside the shortlist
  *     so callers never have to run `buildSquad` twice.
- *  2. Then fill: top ~12 per position by value-per-cost (xpts / now_cost),
- *     plus every currently-owned player, plus every player with non-empty
- *     `news`.
+ *  2. Then fill, subject to a hard cap of `RULES.teamLimit` entries per club
+ *     (`maxPerClub`): the seed and every currently-owned player go in
+ *     unconditionally, then value-per-cost candidates a rank at a time
+ *     across positions, weighted by how many of each position a squad
+ *     needs, then any newsworthy player a club slot is still free for. The
+ *     cap is what makes `club-limit` unviolatable for a squad drawn from
+ *     this shortlist - see `BuildShortlistOptions.maxPerClub` for why that
+ *     matters and where the guarantee stops.
  *  3. Assert `shortlistContainsLegalSquad` before returning. If that ever
  *     fails, it is a bug in THIS construction (not a model failure) --
  *     `buildShortlist` throws `ShortlistInvariantError` rather than
@@ -34,7 +39,7 @@ import {
   type BuildSquadResult,
 } from './optimizer/squad';
 import { shortlistContainsLegalSquad } from './ai/validate';
-import { Position, type Element, type Projection } from './types';
+import { Position, RULES, type Element, type Projection } from './types';
 
 const ALL_POSITIONS = [Position.GK, Position.DEF, Position.MID, Position.FWD] as const;
 
@@ -44,6 +49,28 @@ export interface BuildShortlistOptions {
   /** How many top value-per-cost candidates to keep per position beyond the
    * deterministic-optimum seed. Default 12, per the task brief. */
   perPositionTopN?: number;
+  /**
+   * Most shortlist entries any one club may contribute. Defaults to
+   * `RULES.teamLimit`, which makes the club limit UNVIOLATABLE for a squad
+   * built from this shortlist: a 15 drawn from a pool holding at most 3 of
+   * any club cannot break a max-3-per-club rule, whatever the model does.
+   *
+   * That is the point of it. Across three live eval runs on the flat answer
+   * schema the model broke `club-limit` in nearly every squad answer, the
+   * retries only sometimes recovered it, and one answer holding six players
+   * from a single club defeated `repairSquad` outright. None of that is
+   * reachable from a capped shortlist.
+   *
+   * The seed and owned players are exempt, because dropping either would
+   * cost more than the cap buys - the seed is what proves a legal 15 is
+   * present at all, and an owned player the model cannot see is one it
+   * cannot sell. Both are themselves legal squads and so hold at most 3 of
+   * any club, which is why the guarantee survives the exemption for the only
+   * caller that matters: the squad-creation path passes no owned players.
+   * With a non-empty owned set that disagrees with the seed, the cap becomes
+   * best-effort and `validateSquad` is still the backstop.
+   */
+  maxPerClub?: number;
 }
 
 export interface ShortlistResult {
@@ -89,6 +116,7 @@ export function buildShortlist(
   opts: BuildShortlistOptions = {},
 ): ShortlistResult {
   const perPositionTopN = opts.perPositionTopN ?? DEFAULT_PER_POSITION_TOP_N;
+  const maxPerClub = opts.maxPerClub ?? RULES.teamLimit;
 
   const scores = buildHorizonScores([projections], [1]);
   const candidates = candidatesFromElements([...elements], scores);
@@ -103,32 +131,89 @@ export function buildShortlist(
   }
 
   const elementById = new Map(elements.map((e) => [e.id, e] as const));
-  const shortlistIds = new Set<number>(deterministicSquad.picks.map((p) => p.element));
+  const shortlistIds = new Set<number>();
+  const perClub = new Map<number, number>();
 
-  // 2a. Top ~N per position by value-per-cost.
+  const admit = (element: Element): boolean => {
+    if (shortlistIds.has(element.id)) return false;
+    shortlistIds.add(element.id);
+    perClub.set(element.team, (perClub.get(element.team) ?? 0) + 1);
+    return true;
+  };
+  const hasClubRoom = (element: Element): boolean =>
+    !shortlistIds.has(element.id) && (perClub.get(element.team) ?? 0) < maxPerClub;
+
+  // 1b. The seed and 2b's owned players go in first and unconditionally, so
+  // the cap can only ever bite on the fill below.
+  for (const pick of deterministicSquad.picks) {
+    const element = elementById.get(pick.element);
+    if (element) admit(element);
+  }
+  for (const id of ownedElementIds) {
+    const element = elementById.get(id);
+    if (element) admit(element);
+  }
+
+  // 2a. Top ~N per position by value-per-cost, taken a rank at a time across
+  // all four positions rather than one position to exhaustion. Draining
+  // positions in order would hand every slot of the strong clubs to
+  // whichever position ran first and leave the later ones drawing on weak
+  // clubs alone.
   const byPosition = new Map<Position, Element[]>();
   for (const position of ALL_POSITIONS) byPosition.set(position, []);
   for (const e of elements) byPosition.get(e.element_type)?.push(e);
 
+  const rankedByPosition = new Map<Position, Element[]>();
   for (const position of ALL_POSITIONS) {
     const list = byPosition.get(position) ?? [];
-    const ranked = [...list].sort((a, b) => {
-      const valueA = (scores.get(a.id) ?? 0) / Math.max(a.now_cost, 1);
-      const valueB = (scores.get(b.id) ?? 0) / Math.max(b.now_cost, 1);
-      return valueB - valueA;
-    });
-    for (const e of ranked.slice(0, perPositionTopN)) shortlistIds.add(e.id);
+    rankedByPosition.set(
+      position,
+      [...list].sort((a, b) => {
+        const valueA = (scores.get(a.id) ?? 0) / Math.max(a.now_cost, 1);
+        const valueB = (scores.get(b.id) ?? 0) / Math.max(b.now_cost, 1);
+        return valueB - valueA;
+      }),
+    );
   }
 
-  // 2b. Every currently-owned player.
-  for (const id of ownedElementIds) {
-    if (elementById.has(id)) shortlistIds.add(id);
+  // Each round takes `RULES.squadSelect[position]` admissible players per
+  // position, so the shortlist ends up shaped like the squad it has to
+  // furnish. Taking one per position per round instead gave every position an
+  // equal share of the club slots, which measured 13 GK against 10 MID on a
+  // 54-player shortlist - 13 candidates for 2 GK slots while the 5 MID slots
+  // picked from 10.
+  const cursor = new Map<Position, number>(ALL_POSITIONS.map((p) => [p, 0]));
+  const admitted = new Map<Position, number>(ALL_POSITIONS.map((p) => [p, 0]));
+  for (let progress = true; progress;) {
+    progress = false;
+    for (const position of ALL_POSITIONS) {
+      const ranked = rankedByPosition.get(position) ?? [];
+      const quota = perPositionTopN * RULES.squadSelect[position];
+      let taken = 0;
+      let i = cursor.get(position)!;
+      while (taken < RULES.squadSelect[position] && i < ranked.length) {
+        if (admitted.get(position)! >= quota) break;
+        const candidate = ranked[i]!;
+        i++;
+        if (!hasClubRoom(candidate)) continue;
+        admit(candidate);
+        admitted.set(position, admitted.get(position)! + 1);
+        taken++;
+        progress = true;
+      }
+      cursor.set(position, i);
+    }
   }
 
-  // 2c. Every player with non-empty news (the free-text signal a numeric
-  // model can't read -- see src/ai/prompts.ts's module doc).
+  // 2c. Players with non-empty news (the free-text signal a numeric model
+  // can't read -- see src/ai/prompts.ts's module doc), but no longer
+  // unconditionally: news does not earn a club slot ahead of a better player.
+  // A flagged player left out is one the model cannot pick at all, which
+  // serves the same end as showing it the note and asking it to steer clear.
+  // Any flagged player who does make the shortlist still carries his news
+  // verbatim into the prompt.
   for (const e of elements) {
-    if (e.news) shortlistIds.add(e.id);
+    if (e.news && hasClubRoom(e)) admit(e);
   }
 
   const shortlist = [...shortlistIds]
