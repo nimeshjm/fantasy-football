@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.112Z",
+    "capturedAt": "2026-09-09T09:40:44.617Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [168, 487, 389, 565], \"captain\": 442, \"reason\": \"Maximising expected points with Pavlidis as captain\", \"starters\": [62, 64, 355, 200, 264, 436, 405, 527, 458, 168, 442], \"vice_captain\": 436}",
+          "content": "{\"bench\": [168, 487, 458, 565], \"captain\": 442, \"reason\": \"Maximising expected points with Pavlidis as captain\", \"starters\": [62, 64, 355, 389, 200, 264, 436, 527, 405, 442, 64], \"vice_captain\": 405}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889568,
+    "created": 1788946823,
     "ec_transfer_params": null,
-    "id": "chatcmpl-46648194-b670-4eb0-a8d4-30d2e019cda5",
+    "id": "chatcmpl-82521fe9-2533-48d5-9ca5-9d021fa1807b",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -94,7 +94,7 @@
       "bench": [
         168,
         487,
-        389,
+        458,
         565
       ],
       "captain": 442,
@@ -103,16 +103,16 @@
         62,
         64,
         355,
+        389,
         200,
         264,
         436,
-        405,
         527,
-        458,
-        168,
-        442
+        405,
+        442,
+        64
       ],
-      "vice_captain": 436
+      "vice_captain": 405
     },
     "service_tier": null,
     "tool_calls": [],

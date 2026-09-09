@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.111Z",
+    "capturedAt": "2026-09-09T09:40:44.617Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -11,7 +11,7 @@
       },
       {
         "role": "user",
-        "content": "Owned squad (15 players):\nid|name|pos|club|cost|xpts|form|mins|news?\n7|Rúben Pereira|DEF|AVFC|4.0|4.7|2.5|117\n9|André Clóvis|FWD|AVFC|6.0|5.2|4.5|275\n13|Robinho|DEF|AVFC|4.5|3.7|3.0|360\n75|Baeza|MID|CDN|5.0|4.1|3.2|282\n77|Liziero|MID|CDN|5.0|4.4|5.0|337\n148|Léo Linck|GK|CFEA|5.0|3.8|2.7|270\n187|Fontán|DEF|FCA|5.2|3.1|7.0|360\n242|Diogo Costa|GK|FCP|6.6|4.0|6.5|360\n264|Gabri Veiga|MID|FCP|8.3|3.9|9.5|308\n405|Gonçalo Paciência|FWD|CDSC|5.8|5.5|7.2|295\n436|Prestianni|MID|SLB|8.2|4.7|8.7|250\n539|Ioannidis|FWD|SCP|9.5|5.3|5.2|159\n544|Zalazar|MID|SCP|10.5|5.5|5.5|347\n618|Diogo Ferro|DEF|FCA|4.0|3.1|0.0|0\n640|Moncef Zekri|DEF|SCP|5.5|3.1|0.0|0\n\nYour previous answer was invalid: formation - GK: 0 starting, must be 1-1\nCorrect this and answer again."
+        "content": "Owned squad (15 players):\nid|name|pos|club|cost|xpts|form|mins|news?\n62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360\n64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360\n80|Marin|GK|CDN|4.5|3.6|5.0|360\n187|Fontán|DEF|FCA|5.2|3.8|7.0|360\n200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356\n264|Gabri Veiga|MID|FCP|8.3|3.8|9.5|308\n275|André Silva|FWD|FCP|10.0|4.0|5.0|262\n278|Elimbi|DEF|GVFC|5.0|3.2|6.3|270\n296|Joelson Fernandes|MID|GVFC|5.5|3.6|3.3|212\n355|Ennio van der Gouw|GK|RAFC|5.0|3.6|4.2|360\n389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354\n405|Gonçalo Paciência|FWD|CDSC|5.8|5.7|7.2|295\n539|Ioannidis|FWD|SCP|9.5|6.7|5.2|159\n541|Flávio Gonçalves|MID|SCP|6.7|3.8|6.5|256\n544|Zalazar|MID|SCP|10.5|4.7|5.5|347\n\nYour previous answer was invalid: \"starters\" must be 11 distinct ids; 541 appears more than once\nCorrect this and answer again."
       }
     ],
     "response_format": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [618, 640, 13, 7], \"captain\": 405, \"reason\": \"Maximising expected points\", \"starters\": [148, 187, 77, 9, 436, 544, 242, 539, 264, 75, 5], \"vice_captain\": 544}",
+          "content": "{\"bench\": [80, 296, 278, 64], \"captain\": 539, \"reason\": \"Ioannidis has the highest xpts\", \"starters\": [62, 187, 389, 200, 264, 541, 544, 355, 405, 275, 62], \"vice_captain\": 405}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889559,
+    "created": 1788946817,
     "ec_transfer_params": null,
-    "id": "chatcmpl-1f586011-c78b-4276-b46e-9a3f3a3f08fa",
+    "id": "chatcmpl-e2771f34-d97d-484e-9794-c36a8c4ceadb",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -92,38 +92,38 @@
     "prompt_token_ids": null,
     "response": {
       "bench": [
-        618,
-        640,
-        13,
-        7
+        80,
+        296,
+        278,
+        64
       ],
-      "captain": 405,
-      "reason": "Maximising expected points",
+      "captain": 539,
+      "reason": "Ioannidis has the highest xpts",
       "starters": [
-        148,
+        62,
         187,
-        77,
-        9,
-        436,
-        544,
-        242,
-        539,
+        389,
+        200,
         264,
-        75,
-        5
+        541,
+        544,
+        355,
+        405,
+        275,
+        62
       ],
-      "vice_captain": 544
+      "vice_captain": 405
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
-      "prompt_tokens": 677,
-      "completion_tokens": 79,
-      "total_tokens": 756,
+      "prompt_tokens": 686,
+      "completion_tokens": 82,
+      "total_tokens": 768,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 34.23363494873047
+      "neurons": 35.08805847167969
     }
   }
 }

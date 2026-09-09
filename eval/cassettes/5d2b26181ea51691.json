@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-09T09:31:58.703Z",
+    "capturedAt": "2026-09-09T09:40:44.614Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -81,7 +81,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"def\": [7, 13, 389, 640, 151], \"fwd\": [9, 405, 131], \"gk\": [80, 383], \"mid\": [75, 77, 323, 436, 544], \"reason\": \"Maximising xpts while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m.\"}",
+          "content": "{\"def\": [7, 13, 238, 389, 475], \"fwd\": [9, 131, 405], \"gk\": [80, 383], \"mid\": [75, 77, 323, 436, 544], \"reason\": \"Optimal squad within budget and club constraints\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -92,9 +92,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788946310,
+    "created": 1788946796,
     "ec_transfer_params": null,
-    "id": "chatcmpl-7d822c72-0dc0-4336-a677-89b680a057e9",
+    "id": "chatcmpl-5587f454-4068-4f73-ad22-637443c53fce",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -106,14 +106,14 @@
       "def": [
         7,
         13,
+        238,
         389,
-        640,
-        151
+        475
       ],
       "fwd": [
         9,
-        405,
-        131
+        131,
+        405
       ],
       "gk": [
         80,
@@ -126,18 +126,18 @@
         436,
         544
       ],
-      "reason": "Maximising xpts while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m."
+      "reason": "Optimal squad within budget and club constraints"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 1796,
-      "completion_tokens": 95,
-      "total_tokens": 1891,
+      "completion_tokens": 73,
+      "total_tokens": 1869,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 67.35163879394531
+      "neurons": 62.845924377441406
     }
   }
 }

@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.114Z",
+    "capturedAt": "2026-09-09T09:40:44.619Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -51,7 +51,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"element_in\": 200, \"element_out\": 436, \"reason\": \"Highest gain transfer\"}",
+          "content": "{\"element_in\": 200, \"element_out\": 436, \"reason\": \"Highest gain\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -62,9 +62,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889589,
+    "created": 1788946842,
     "ec_transfer_params": null,
-    "id": "chatcmpl-6c68c7d7-3e49-4839-8049-866594aee877",
+    "id": "chatcmpl-804d79f9-6a2c-4ae1-a7d4-db75f0543127",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -75,18 +75,18 @@
     "response": {
       "element_in": 200,
       "element_out": 436,
-      "reason": "Highest gain transfer"
+      "reason": "Highest gain"
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 1562,
-      "completion_tokens": 23,
-      "total_tokens": 1585,
+      "completion_tokens": 22,
+      "total_tokens": 1584,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 46.365421295166016
+      "neurons": 46.16061782836914
     }
   }
 }

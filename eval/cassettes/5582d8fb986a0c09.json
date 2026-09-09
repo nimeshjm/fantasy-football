@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-09T09:31:58.704Z",
+    "capturedAt": "2026-09-09T09:40:44.615Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -81,7 +81,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"def\": [62, 187, 238, 389, 639], \"fwd\": [202, 384, 405], \"gk\": [80, 383], \"mid\": [200, 296, 541, 592, 560], \"reason\": \"Maximising expected points while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m.\"}",
+          "content": "{\"def\": [62, 187, 238, 389, 554], \"fwd\": [202, 384, 405], \"gk\": [80, 383], \"mid\": [200, 296, 541, 592, 560], \"reason\": \"Maximising expected points while respecting budget and club constraints.\"}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -92,9 +92,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788946313,
+    "created": 1788946798,
     "ec_transfer_params": null,
-    "id": "chatcmpl-8a37edfa-fd00-4faa-8884-16969e4bd2c0",
+    "id": "chatcmpl-5e429a66-9dae-444c-856d-403cf25ce95a",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -108,7 +108,7 @@
         187,
         238,
         389,
-        639
+        554
       ],
       "fwd": [
         202,
@@ -126,18 +126,18 @@
         592,
         560
       ],
-      "reason": "Maximising expected points while respecting the constraints of at most 3 players from the same club and a total budget of EUR100.0m."
+      "reason": "Maximising expected points while respecting budget and club constraints."
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 1832,
-      "completion_tokens": 95,
-      "total_tokens": 1927,
+      "completion_tokens": 77,
+      "total_tokens": 1909,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 68.31167602539062
+      "neurons": 64.62518310546875
     }
   }
 }

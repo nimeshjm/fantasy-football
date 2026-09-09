@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.113Z",
+    "capturedAt": "2026-09-09T09:40:44.618Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [2, 6, 7, 15], \"captain\": 14, \"reason\": \"Maximizing expected points, avoiding injured player\", \"starters\": [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14], \"vice_captain\": 13}",
+          "content": "{\"bench\": [2, 6, 7, 15], \"captain\": 15, \"reason\": \"Injury issues\", \"starters\": [1, 3, 4, 5, 8, 9, 10, 11, 12, 13, 14], \"vice_captain\": 14}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889576,
+    "created": 1788946828,
     "ec_transfer_params": null,
-    "id": "chatcmpl-4b79bd3f-eb02-44c3-b86a-b0b22111c120",
+    "id": "chatcmpl-0e9d99e9-35d8-4171-8d61-d43a709e1e57",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -97,8 +97,8 @@
         7,
         15
       ],
-      "captain": 14,
-      "reason": "Maximizing expected points, avoiding injured player",
+      "captain": 15,
+      "reason": "Injury issues",
       "starters": [
         1,
         3,
@@ -112,18 +112,18 @@
         13,
         14
       ],
-      "vice_captain": 13
+      "vice_captain": 14
     },
     "service_tier": null,
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 647,
-      "completion_tokens": 83,
-      "total_tokens": 730,
+      "completion_tokens": 77,
+      "total_tokens": 724,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 34.25282287597656
+      "neurons": 33.02399444580078
     }
   }
 }

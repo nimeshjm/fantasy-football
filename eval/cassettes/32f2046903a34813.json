@@ -1,6 +1,6 @@
 {
   "_captured": {
-    "capturedAt": "2026-09-08T17:46:31.113Z",
+    "capturedAt": "2026-09-09T09:40:44.619Z",
     "requestedModel": "@cf/meta/llama-3.3-70b-instruct-fp8-fast"
   },
   "request": {
@@ -69,7 +69,7 @@
         "message": {
           "annotations": null,
           "audio": null,
-          "content": "{\"bench\": [2, 5, 7, 12], \"captain\": 15, \"reason\": \"Maximising expected points with captain\", \"starters\": [1, 3, 4, 6, 8, 9, 10, 13, 14, 15, 11], \"vice_captain\": 14}",
+          "content": "{\"bench\": [2, 5, 7, 11], \"captain\": 15, \"reason\": \"Maximising expected points\", \"starters\": [1, 3, 4, 6, 8, 9, 10, 12, 13, 14, 15], \"vice_captain\": 14}",
           "function_call": null,
           "reasoning": null,
           "refusal": null,
@@ -80,9 +80,9 @@
         "token_ids": null
       }
     ],
-    "created": 1788889579,
+    "created": 1788946834,
     "ec_transfer_params": null,
-    "id": "chatcmpl-7561fbc2-f84f-4043-b6f7-2b2482370816",
+    "id": "chatcmpl-eb314deb-2d12-4993-b9ea-6fff4143da85",
     "kv_transfer_params": null,
     "metrics": null,
     "model": "@cf/meta/llama-3.3-70b-json",
@@ -95,10 +95,10 @@
         2,
         5,
         7,
-        12
+        11
       ],
       "captain": 15,
-      "reason": "Maximising expected points with captain",
+      "reason": "Maximising expected points",
       "starters": [
         1,
         3,
@@ -107,10 +107,10 @@
         8,
         9,
         10,
+        12,
         13,
         14,
-        15,
-        11
+        15
       ],
       "vice_captain": 14
     },
@@ -118,12 +118,12 @@
     "tool_calls": [],
     "usage": {
       "prompt_tokens": 642,
-      "completion_tokens": 81,
-      "total_tokens": 723,
+      "completion_tokens": 79,
+      "total_tokens": 721,
       "prompt_tokens_details": {
         "cached_tokens": 0
       },
-      "neurons": 33.709877014160156
+      "neurons": 33.300262451171875
     }
   }
 }
