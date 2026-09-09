@@ -19,7 +19,7 @@
  * against it, not to feed one. Never pass their output into a model as an
  * input -- that would be exactly the leak this file exists to prevent.
  */
-import { fitTeamRatings } from '../../../src/model/ratings';
+import { fitTeamRatings, type FitRatingsOptions } from '../../../src/model/ratings';
 import {
   projectAll,
   STRATEGY_MODEL_V2,
@@ -186,9 +186,18 @@ export interface PointInTimeState {
 }
 
 /** The point-in-time inputs for gameweek `g`: every input restricted to
- * `event < g` (see this file's module doc). */
-export function pointInTimeState(g: number): PointInTimeState {
-  const ratings = fitTeamRatings(fixtures.filter((f) => f.event !== null && f.event < g));
+ * `event < g` (see this file's module doc).
+ *
+ * `ratingsOpts` is the A/B seam for the ratings fit: pass
+ * `{ estimator: RATINGS_EMPIRICAL_BAYES }` to build the same
+ * point-in-time state under the other arm. Defaults to `{}`, i.e.
+ * whatever `fitTeamRatings` defaults to, so every existing caller and
+ * recorded snapshot is unaffected. */
+export function pointInTimeState(g: number, ratingsOpts: FitRatingsOptions = {}): PointInTimeState {
+  const ratings = fitTeamRatings(
+    fixtures.filter((f) => f.event !== null && f.event < g),
+    ratingsOpts,
+  );
 
   const fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
   for (const f of fixtures.filter((f) => f.event === g)) {

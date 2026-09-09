@@ -2,7 +2,12 @@
  * Tests for src/model/ratings.ts and src/model/projection.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { expectedGoals, fitTeamRatings } from '../src/model/ratings';
+import {
+  expectedGoals,
+  fitTeamRatings,
+  RATINGS_EMPIRICAL_BAYES,
+  RATINGS_RIDGE,
+} from '../src/model/ratings';
 import {
   poissonFloorDivExpectation,
   projectAll,
@@ -166,6 +171,116 @@ describe('fitTeamRatings', () => {
     const eg = expectedGoals(model, 99, 1); // team 99 never played
     expect(Number.isFinite(eg.home)).toBe(true);
     expect(Number.isFinite(eg.away)).toBe(true);
+  });
+
+  it('defaults to the ridge estimator', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 3, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 1, team_a_score: 2 }),
+    ];
+    const implicit = fitTeamRatings(fixtures);
+    const explicit = fitTeamRatings(fixtures, { estimator: RATINGS_RIDGE });
+    expect(implicit.ratings.get(1)!.attack).toBe(explicit.ratings.get(1)!.attack);
+    expect(implicit.ratings.get(1)!.defence).toBe(explicit.ratings.get(1)!.defence);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fitTeamRatings -- the empirical-bayes estimator arm
+// ---------------------------------------------------------------------------
+
+describe("fitTeamRatings (estimator: 'empirical-bayes')", () => {
+  it('collapses every rating to exactly 1.0 when the spread is pure scoring noise', () => {
+    // Four teams, one round of fixtures, every game 1-1. There is no
+    // scatter at all to explain, so betweenVar clamps to 0 and the arm
+    // claims no team is distinguishable from league-average. This is the
+    // GW2 path -- a single round of real fixtures is close to this case.
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 1, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 3, team_a: 4, team_h_score: 1, team_a_score: 1 }),
+    ];
+    const model = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    expect(model.ratings.size).toBe(4);
+    for (const r of model.ratings.values()) {
+      expect(r.attack).toBeCloseTo(1, 10);
+      expect(r.defence).toBeCloseTo(1, 10);
+    }
+  });
+
+  it('shrinks fully when there are too few teams to estimate a between-team variance', () => {
+    // One 5-0 in a two-team league. Two teams is below the arm's
+    // MIN_TEAMS_FOR_EB floor, so there is no population to estimate
+    // between-team spread from and it returns exactly the league mean.
+    // Ridge, which asserts its strength rather than estimating it, still
+    // lets some of that scoreline through.
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 5, team_a_score: 0 }),
+    ];
+    const eb = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    const ridge = fitTeamRatings(fixtures, { estimator: RATINGS_RIDGE });
+    expect(Math.abs(eb.ratings.get(1)!.attack - 1)).toBeLessThan(
+      Math.abs(ridge.ratings.get(1)!.attack - 1),
+    );
+  });
+
+  it('separates a genuinely dominant team once the spread outgrows the noise floor', () => {
+    // Team 1 beats everyone 4-0 home and away over 8 games; the others
+    // draw 1-1. That scatter is far too large to be Poisson noise, so
+    // betweenVar is positive and the arm does rate team 1 apart.
+    const fixtures: Fixture[] = [];
+    let id = 1;
+    for (const opponent of [2, 3, 4, 5]) {
+      fixtures.push(
+        makeFixture({ id: id++, team_h: 1, team_a: opponent, team_h_score: 4, team_a_score: 0 }),
+      );
+      fixtures.push(
+        makeFixture({ id: id++, team_h: opponent, team_a: 1, team_h_score: 0, team_a_score: 4 }),
+      );
+    }
+    fixtures.push(
+      makeFixture({ id: id++, team_h: 2, team_a: 3, team_h_score: 1, team_a_score: 1 }),
+    );
+    fixtures.push(
+      makeFixture({ id: id++, team_h: 4, team_a: 5, team_h_score: 1, team_a_score: 1 }),
+    );
+
+    const model = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    const team1 = model.ratings.get(1)!;
+    const team2 = model.ratings.get(2)!;
+    expect(team1.attack).toBeGreaterThan(team2.attack);
+    expect(team1.defence).toBeLessThan(team2.defence);
+  });
+
+  it('ignores `shrinkage`, which is a ridge-only knob', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 4, team_a_score: 0 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 0, team_a_score: 3 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 4, team_h_score: 1, team_a_score: 1 }),
+      makeFixture({ id: 4, team_h: 4, team_a: 3, team_h_score: 2, team_a_score: 1 }),
+    ];
+    const a = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES, shrinkage: 1 });
+    const b = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES, shrinkage: 500 });
+    expect(a.ratings.get(1)!.attack).toBe(b.ratings.get(1)!.attack);
+  });
+
+  it('keeps ratings finite and inside the clamp range on a lopsided fixture list', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 9, team_a_score: 0 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 3, team_h_score: 0, team_a_score: 7 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 1, team_h_score: 0, team_a_score: 0 }),
+    ];
+    const model = fitTeamRatings(fixtures, {
+      estimator: RATINGS_EMPIRICAL_BAYES,
+      clampRange: [0.35, 2.75],
+    });
+    for (const r of model.ratings.values()) {
+      expect(Number.isFinite(r.attack)).toBe(true);
+      expect(Number.isFinite(r.defence)).toBe(true);
+      expect(r.attack).toBeGreaterThanOrEqual(0.35);
+      expect(r.attack).toBeLessThanOrEqual(2.75);
+      expect(r.defence).toBeGreaterThanOrEqual(0.35);
+      expect(r.defence).toBeLessThanOrEqual(2.75);
+    }
   });
 });
 
