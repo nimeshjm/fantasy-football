@@ -43,14 +43,40 @@ export const STRATEGY_EP_NEXT = 'ep-next' as const;
 export const STRATEGY_MODEL_V2 = 'model-v2' as const;
 export type ProjectionStrategy = typeof STRATEGY_EP_NEXT | typeof STRATEGY_MODEL_V2;
 
-/** A player's team has exactly this one fixture in the target gameweek.
- * Blank gameweeks are represented by the team being absent from the map;
- * double gameweeks are not modelled here (the fixture list this project
- * runs against has never shown one -- see scoring.ts's fixture-boundary
- * note) -- a future double-GW extension would widen this to an array. */
+/** One fixture a player's team plays in the target gameweek. Teams hold a
+ * LIST of these: a gameweek can be blank (empty list, or absent from the
+ * map) or a double (two entries -- GW5 of the 2026/27 Liga Portugal season
+ * was a double for MFC, CFEA, SCB and SLB, so this is not hypothetical). */
 export interface UpcomingFixtureInfo {
   opponent: number;
   isHome: boolean;
+}
+
+/**
+ * Groups one gameweek's fixtures into the per-team lists `projectAll`
+ * wants. Callers pass the fixtures for a SINGLE event; teams with no
+ * fixture are simply absent (a blank gameweek).
+ *
+ * This exists because the grouping is easy to get wrong in exactly one
+ * way: a `set()` per fixture silently drops a team's first fixture when it
+ * plays twice, so a double gameweek reads as whichever fixture happened to
+ * come last. It appends instead, and both the workflow and the eval
+ * harness go through here so that correctness lives in one place.
+ */
+export function groupFixturesByTeam(
+  fixtures: readonly { team_h: number; team_a: number }[],
+): Map<number, UpcomingFixtureInfo[]> {
+  const byTeam = new Map<number, UpcomingFixtureInfo[]>();
+  const add = (team: number, info: UpcomingFixtureInfo) => {
+    const list = byTeam.get(team);
+    if (list) list.push(info);
+    else byTeam.set(team, [info]);
+  };
+  for (const f of fixtures) {
+    add(f.team_h, { opponent: f.team_a, isHome: true });
+    add(f.team_a, { opponent: f.team_h, isHome: false });
+  }
+  return byTeam;
 }
 
 export interface ProjectionOptions {
@@ -58,10 +84,13 @@ export interface ProjectionOptions {
   /** Team ratings from `fitTeamRatings`. Required (and used) only by
    * `'model-v2'`. */
   ratings?: RatingsModel;
-  /** This gameweek's fixture per team, keyed by team id. A team missing
-   * from the map is treated as having a blank gameweek: v2 projects 0
-   * xmins / 0 xpts for its players regardless of anything else. */
-  fixturesByTeam?: ReadonlyMap<number, UpcomingFixtureInfo>;
+  /** This gameweek's fixtures per team, keyed by team id, in kickoff
+   * order. A team missing from the map -- or present with an empty list --
+   * is treated as having a blank gameweek: v2 projects 0 xmins / 0 xpts
+   * for its players regardless of anything else. Two entries is a double
+   * gameweek and is scored as two separate matches; see `projectModelV2`
+   * for why that cannot be pooled into one. */
+  fixturesByTeam?: ReadonlyMap<number, readonly UpcomingFixtureInfo[]>;
   /** Recent per-fixture stat lines for each player, keyed by element id,
    * oldest first. Only the last `trailingWindow` entries are used. */
   trailingStatsByElement?: ReadonlyMap<number, readonly GwStats[]>;
@@ -259,19 +288,26 @@ function projectModelV2(
   >,
   positionAvgCost: Readonly<Record<Position, number>>,
   ratings: RatingsModel | undefined,
-  fixturesByTeam: ReadonlyMap<number, UpcomingFixtureInfo> | undefined,
+  fixturesByTeam: ReadonlyMap<number, readonly UpcomingFixtureInfo[]> | undefined,
   trailingStatsByElement: ReadonlyMap<number, readonly GwStats[]> | undefined,
 ): Projection {
-  const fixture = fixturesByTeam?.get(element.team);
-  if (!fixture) {
-    // Blank gameweek for this team: nothing to project.
+  const teamFixtures = fixturesByTeam?.get(element.team);
+  if (!teamFixtures || teamFixtures.length === 0) {
+    // Blank gameweek for this team: nothing to project. Both an absent
+    // team and a present-but-empty list mean the same thing.
     return { element_id: element.id, event, xmins: 0, xpts: 0 };
   }
 
   const allTrailing = trailingStatsByElement?.get(element.id) ?? [];
   const trailing = allTrailing.slice(-opts.trailingWindow);
-  const xmins = estimateXMinsV2(element, trailing, opts.baseMinutesIfFit);
-  if (xmins <= 0) return { element_id: element.id, event, xmins: 0, xpts: 0 };
+  // Per-MATCH minutes. Rotation risk specific to playing twice in a
+  // gameweek is deliberately not modelled: there is no per-match rotation
+  // history to estimate it from in a season this young, and a guessed
+  // discount would be a number with nothing behind it. A double therefore
+  // projects 2x a single fixture's minutes, which is the optimistic end of
+  // the honest range.
+  const xminsPerFixture = estimateXMinsV2(element, trailing, opts.baseMinutesIfFit);
+  if (xminsPerFixture <= 0) return { element_id: element.id, event, xmins: 0, xpts: 0 };
 
   const position = element.element_type;
   const priors = POSITION_PRIORS[position];
@@ -321,51 +357,74 @@ function projectModelV2(
     opts.shrinkagePseudoMinutes,
   );
 
-  const minutesFactor = xmins / 90;
+  const minutesFactor = xminsPerFixture / 90;
 
-  let attackFactor = 1;
-  let opponentGoalsExpected = 1;
-  if (ratings) {
-    const homeTeam = fixture.isHome ? element.team : fixture.opponent;
-    const awayTeam = fixture.isHome ? fixture.opponent : element.team;
-    const eg = expectedGoals(ratings, homeTeam, awayTeam);
-    const teamGoalsExpected = fixture.isHome ? eg.home : eg.away;
-    opponentGoalsExpected = fixture.isHome ? eg.away : eg.home;
-    attackFactor = ratings.leagueAvgGoals > 0 ? teamGoalsExpected / ratings.leagueAvgGoals : 1;
-  }
-
-  const lambdaGoals = goalsPer90 * minutesFactor * attackFactor;
-  const lambdaAssists = assistsPer90 * minutesFactor * attackFactor;
-  const lambdaShotsOnTarget = shotsOnTargetPer90 * minutesFactor * attackFactor;
-  const lambdaSaves =
-    savesPer90 * minutesFactor * (opponentGoalsExpected / (ratings?.leagueAvgGoals || 1));
-  const lambdaYellow = yellowPer90 * minutesFactor;
-  const lambdaRed = redPer90 * minutesFactor;
-
+  // Points accrue PER MATCH, and the per-match terms are not poolable into
+  // one bigger expectation:
+  //
+  //  - Appearance points are awarded once per match played, so two matches
+  //    pay them twice.
+  //  - The shots-on-target and saves bonuses are floor(n/2) of that
+  //    match's count. E[floor((X1+X2)/2)] != E[floor(X1/2)] +
+  //    E[floor(X2/2)], so pooling the two matches' lambdas would
+  //    systematically misprice them (see `poissonFloorDivExpectation`).
+  //  - Clean sheets are per match and against a specific opponent.
+  //
+  // So each fixture is scored on its own opponent and summed. Do not
+  // "simplify" this back into a single pooled lambda.
   let xpts = 0;
-  xpts += xmins >= LONG_PLAY_MINUTES ? APPEARANCE_LONG : xmins > 0 ? APPEARANCE_SHORT : 0;
-  xpts += lambdaGoals * GOAL_POINTS[position];
-  xpts += lambdaAssists * ASSIST_POINTS;
-  xpts += poissonFloorDivExpectation(lambdaShotsOnTarget, 2, opts.kMaxPoisson);
-  if (position === Position.GK) {
-    xpts += poissonFloorDivExpectation(lambdaSaves, 2, opts.kMaxPoisson);
-  }
-  xpts += lambdaYellow * YELLOW_CARD_POINTS;
-  xpts += lambdaRed * RED_CARD_POINTS;
+  for (const fixture of teamFixtures) {
+    let attackFactor = 1;
+    let opponentGoalsExpected = 1;
+    if (ratings) {
+      const homeTeam = fixture.isHome ? element.team : fixture.opponent;
+      const awayTeam = fixture.isHome ? fixture.opponent : element.team;
+      const eg = expectedGoals(ratings, homeTeam, awayTeam);
+      const teamGoalsExpected = fixture.isHome ? eg.home : eg.away;
+      opponentGoalsExpected = fixture.isHome ? eg.away : eg.home;
+      attackFactor = ratings.leagueAvgGoals > 0 ? teamGoalsExpected / ratings.leagueAvgGoals : 1;
+    }
 
-  if (CONCEDE_PENALISED.has(position)) {
-    // Both the clean-sheet bonus and the goals-conceded penalty are gated
-    // on the same crude "did they play a meaningful share of the match"
-    // proxy, since we don't model a full minutes distribution here.
-    const playedMeaningfulShare = clamp(xmins / LONG_PLAY_MINUTES, 0, 1);
-    const cleanSheetProbability = Math.exp(-opponentGoalsExpected); // P(X=0), Poisson
-    xpts += cleanSheetProbability * playedMeaningfulShare * CLEAN_SHEET_POINTS[position];
-    xpts -=
-      poissonFloorDivExpectation(opponentGoalsExpected, 2, opts.kMaxPoisson) *
-      playedMeaningfulShare;
+    const lambdaGoals = goalsPer90 * minutesFactor * attackFactor;
+    const lambdaAssists = assistsPer90 * minutesFactor * attackFactor;
+    const lambdaShotsOnTarget = shotsOnTargetPer90 * minutesFactor * attackFactor;
+    const lambdaSaves =
+      savesPer90 * minutesFactor * (opponentGoalsExpected / (ratings?.leagueAvgGoals || 1));
+    const lambdaYellow = yellowPer90 * minutesFactor;
+    const lambdaRed = redPer90 * minutesFactor;
+
+    xpts +=
+      xminsPerFixture >= LONG_PLAY_MINUTES
+        ? APPEARANCE_LONG
+        : xminsPerFixture > 0
+          ? APPEARANCE_SHORT
+          : 0;
+    xpts += lambdaGoals * GOAL_POINTS[position];
+    xpts += lambdaAssists * ASSIST_POINTS;
+    xpts += poissonFloorDivExpectation(lambdaShotsOnTarget, 2, opts.kMaxPoisson);
+    if (position === Position.GK) {
+      xpts += poissonFloorDivExpectation(lambdaSaves, 2, opts.kMaxPoisson);
+    }
+    xpts += lambdaYellow * YELLOW_CARD_POINTS;
+    xpts += lambdaRed * RED_CARD_POINTS;
+
+    if (CONCEDE_PENALISED.has(position)) {
+      // Both the clean-sheet bonus and the goals-conceded penalty are gated
+      // on the same crude "did they play a meaningful share of the match"
+      // proxy, since we don't model a full minutes distribution here.
+      const playedMeaningfulShare = clamp(xminsPerFixture / LONG_PLAY_MINUTES, 0, 1);
+      const cleanSheetProbability = Math.exp(-opponentGoalsExpected); // P(X=0), Poisson
+      xpts += cleanSheetProbability * playedMeaningfulShare * CLEAN_SHEET_POINTS[position];
+      xpts -=
+        poissonFloorDivExpectation(opponentGoalsExpected, 2, opts.kMaxPoisson) *
+        playedMeaningfulShare;
+    }
   }
 
-  return { element_id: element.id, event, xmins, xpts };
+  // Gameweek minutes, not per-match: a double gameweek reports both
+  // matches' minutes. Nothing outside this module thresholds on xmins
+  // (it is persisted and logged), so the total is the useful reading.
+  return { element_id: element.id, event, xmins: xminsPerFixture * teamFixtures.length, xpts };
 }
 
 /** Projects a single player. `positionAvgCost` (only used by `model-v2`) is

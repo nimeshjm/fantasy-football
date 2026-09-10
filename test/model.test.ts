@@ -9,6 +9,7 @@ import {
   RATINGS_RIDGE,
 } from '../src/model/ratings';
 import {
+  groupFixturesByTeam,
   poissonFloorDivExpectation,
   projectAll,
   projectPlayer,
@@ -386,7 +387,7 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
     );
     const proj = projectPlayer(el, 5, {
       strategy: STRATEGY_MODEL_V2,
-      fixturesByTeam: new Map([[1, { opponent: 2, isHome: true }]]),
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
       trailingStatsByElement: new Map([[100, trailing]]),
     });
     expect(proj.xmins).toBeGreaterThan(0);
@@ -420,11 +421,11 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
 
     const projVsWeakDefence = projectPlayer(forward, 5, {
       ...common,
-      fixturesByTeam: new Map([[10, { opponent: 20, isHome: true }]]),
+      fixturesByTeam: new Map([[10, [{ opponent: 20, isHome: true }]]]),
     });
     const projVsStrongDefence = projectPlayer(forward, 5, {
       ...common,
-      fixturesByTeam: new Map([[10, { opponent: 30, isHome: true }]]),
+      fixturesByTeam: new Map([[10, [{ opponent: 30, isHome: true }]]]),
     });
 
     expect(projVsWeakDefence.xpts).toBeGreaterThan(projVsStrongDefence.xpts);
@@ -451,8 +452,8 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
     const opts = {
       strategy: STRATEGY_MODEL_V2,
       fixturesByTeam: new Map([
-        [1, { opponent: 99, isHome: true }],
-        [2, { opponent: 98, isHome: true }],
+        [1, [{ opponent: 99, isHome: true }]],
+        [2, [{ opponent: 98, isHome: true }]],
       ]),
     };
     const cheapProj = projectPlayer(cheapKeeper, 5, opts, positionAvgCost);
@@ -505,8 +506,8 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
       [fwd.id, trailingFor(fwd.id, { shots_on_target: 4, goals_scored: 2 })],
     ]);
     const fixturesByTeam = new Map([
-      [1, { opponent: 2, isHome: true }],
-      [2, { opponent: 1, isHome: false }],
+      [1, [{ opponent: 2, isHome: true }]],
+      [2, [{ opponent: 1, isHome: false }]],
     ]);
 
     const projections = projectAll(elements, 5, {
@@ -554,7 +555,7 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
     ]);
     // Team 1 (blankTeamPlayer's team) is absent from the map -- a blank
     // gameweek for that team only. Team 2 has a fixture in the same event.
-    const fixturesByTeam = new Map([[2, { opponent: 3, isHome: true }]]);
+    const fixturesByTeam = new Map([[2, [{ opponent: 3, isHome: true }]]]);
 
     const [blankResult, fixturedResult] = projectAll([blankTeamPlayer, fixturedTeamPlayer], 5, {
       strategy: STRATEGY_MODEL_V2,
@@ -565,5 +566,175 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
     expect(blankResult).toMatchObject({ xmins: 0, xpts: 0 });
     expect(fixturedResult!.xmins).toBeGreaterThan(0);
     expect(fixturedResult!.xpts).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Double gameweeks (projection.ts's per-fixture loop + groupFixturesByTeam)
+// ---------------------------------------------------------------------------
+
+describe('groupFixturesByTeam', () => {
+  it('gives each team one entry per fixture, home and away', () => {
+    const byTeam = groupFixturesByTeam([
+      { team_h: 1, team_a: 2 },
+      { team_h: 3, team_a: 4 },
+    ]);
+    expect(byTeam.get(1)).toEqual([{ opponent: 2, isHome: true }]);
+    expect(byTeam.get(2)).toEqual([{ opponent: 1, isHome: false }]);
+    expect(byTeam.get(3)).toEqual([{ opponent: 4, isHome: true }]);
+  });
+
+  it('appends both fixtures for a team playing twice, rather than dropping the first', () => {
+    // The regression this helper exists for: a `set()` per fixture would
+    // leave team 1 with only the SECOND fixture (opponent 3).
+    const byTeam = groupFixturesByTeam([
+      { team_h: 1, team_a: 2 },
+      { team_h: 3, team_a: 1 },
+    ]);
+    expect(byTeam.get(1)).toEqual([
+      { opponent: 2, isHome: true },
+      { opponent: 3, isHome: false },
+    ]);
+  });
+
+  it('preserves fixture order, so a list in kickoff order stays in kickoff order', () => {
+    const byTeam = groupFixturesByTeam([
+      { team_h: 5, team_a: 1 },
+      { team_h: 1, team_a: 9 },
+    ]);
+    expect(byTeam.get(1)).toEqual([
+      { opponent: 5, isHome: false },
+      { opponent: 9, isHome: true },
+    ]);
+  });
+
+  it('omits a team with no fixture in the event (blank gameweek)', () => {
+    const byTeam = groupFixturesByTeam([{ team_h: 1, team_a: 2 }]);
+    expect(byTeam.has(3)).toBe(false);
+  });
+});
+
+describe('projectPlayer (model-v2) -- double gameweeks', () => {
+  const nailedForward = () =>
+    makeElement({ id: 700, team: 1, element_type: Position.FWD, now_cost: 80, status: 'a' });
+  const trailingFourNineties = () =>
+    new Map([
+      [
+        700,
+        [1, 2, 3, 4].map((event) =>
+          makeGwStats({
+            element_id: 700,
+            event,
+            fixture_id: event,
+            minutes: 90,
+            goals_scored: 1,
+            shots_on_target: 3,
+          }),
+        ),
+      ],
+    ]);
+
+  it('doubles xmins and xpts when a team plays the same fixture twice', () => {
+    // Two identical fixtures means every per-match term is identical, so
+    // the gameweek total must be exactly twice the single-fixture total --
+    // including the appearance points and the floor(n/2) shot bonus, which
+    // are per match and would NOT double if the two were pooled into one
+    // bigger lambda.
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const single = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+      trailingStatsByElement: trailing,
+    });
+    const double = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 2, isHome: true },
+          ],
+        ],
+      ]),
+      trailingStatsByElement: trailing,
+    });
+    expect(double.xmins).toBeCloseTo(single.xmins * 2, 10);
+    expect(double.xpts).toBeCloseTo(single.xpts * 2, 10);
+  });
+
+  it('scores a double against two different opponents as the sum of the two singles', () => {
+    // The point of the per-fixture loop: each leg is priced against its
+    // OWN opponent, so an easy leg and a hard leg are not averaged into
+    // one notional fixture.
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const ratings = fitTeamRatings([
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 2, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 0, team_a_score: 3 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 4, team_h_score: 5, team_a_score: 0 }),
+      makeFixture({ id: 4, team_h: 4, team_a: 3, team_h_score: 0, team_a_score: 4 }),
+    ]);
+    const base = { strategy: STRATEGY_MODEL_V2, ratings, trailingStatsByElement: trailing };
+
+    const legA = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+    });
+    const legB = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([[1, [{ opponent: 4, isHome: false }]]]),
+    });
+    const both = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 4, isHome: false },
+          ],
+        ],
+      ]),
+    });
+
+    expect(both.xpts).toBeCloseTo(legA.xpts + legB.xpts, 10);
+    // And it is genuinely two different prices, not the same leg twice.
+    expect(legA.xpts).not.toBeCloseTo(legB.xpts, 4);
+  });
+
+  it('ranks a double above an otherwise identical single', () => {
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const single = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+      trailingStatsByElement: trailing,
+    });
+    const double = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 3, isHome: false },
+          ],
+        ],
+      ]),
+      trailingStatsByElement: trailing,
+    });
+    expect(double.xpts).toBeGreaterThan(single.xpts);
+  });
+
+  it('treats a present-but-empty fixture list as a blank gameweek', () => {
+    const proj = projectPlayer(nailedForward(), 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, []]]),
+      trailingStatsByElement: trailingFourNineties(),
+    });
+    expect(proj.xmins).toBe(0);
+    expect(proj.xpts).toBe(0);
   });
 });

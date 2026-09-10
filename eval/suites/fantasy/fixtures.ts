@@ -23,6 +23,7 @@ import { fitTeamRatings, type FitRatingsOptions } from '../../../src/model/ratin
 import {
   projectAll,
   STRATEGY_MODEL_V2,
+  groupFixturesByTeam,
   type UpcomingFixtureInfo,
 } from '../../../src/model/projection';
 import { deriveGwStatsFromLive } from '../../../src/workflows/ingest';
@@ -180,7 +181,7 @@ export interface PointInTimeState {
   event: number;
   elements: Element[];
   ratings: ReturnType<typeof fitTeamRatings>;
-  fixturesByTeam: Map<number, UpcomingFixtureInfo>;
+  fixturesByTeam: Map<number, UpcomingFixtureInfo[]>;
   trailingStatsByElement: Map<number, GwStats[]>;
   projections: Projection[];
 }
@@ -199,11 +200,7 @@ export function pointInTimeState(g: number, ratingsOpts: FitRatingsOptions = {})
     ratingsOpts,
   );
 
-  const fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
-  for (const f of fixtures.filter((f) => f.event === g)) {
-    fixturesByTeam.set(f.team_h, { opponent: f.team_a, isHome: true });
-    fixturesByTeam.set(f.team_a, { opponent: f.team_h, isHome: false });
-  }
+  const fixturesByTeam = groupFixturesByTeam(fixtures.filter((f) => f.event === g));
 
   const trailingStatsByElement = new Map<number, GwStats[]>();
   for (let priorGw = 1; priorGw < g; priorGw++) {
