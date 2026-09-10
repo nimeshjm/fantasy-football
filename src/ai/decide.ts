@@ -83,6 +83,8 @@ export interface LlmAuditSink {
     attempt: number;
     outcome: 'ok' | 'skipped-prompt-too-large' | 'skipped-budget' | 'provider-error';
     reason?: string;
+    /** The system+user text actually sent to the model. */
+    prompt: string;
     estNeuronsIn: number;
     estNeuronsOut: number;
     rawResponse?: string;
@@ -251,6 +253,7 @@ async function callLlm(
         attempt,
         outcome,
         reason,
+        prompt: `${prompt.system}\n\n${prompt.user}`,
         estNeuronsIn: estimateNeurons(inputTokens, 0),
         estNeuronsOut: estimateNeurons(0, maxTokens),
         rawResponse,
