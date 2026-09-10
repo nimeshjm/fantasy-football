@@ -693,6 +693,7 @@ describe('makeAuditSink (decideCommit.ts)', () => {
     const sink = makeAuditSink({ ...db, modelName: 'test-model' });
 
     await sink.record({
+      prompt: 'test-prompt',
       decisionKind: 'squad',
       attempt: 0,
       outcome: 'ok',
@@ -735,6 +736,7 @@ describe('makeAuditSink (decideCommit.ts)', () => {
     // Attempt 0 answered and validated-with-errors: this is the row whose
     // picks the repair path will fix up and gate.
     await sink.record({
+      prompt: 'test-prompt',
       decisionKind: 'squad',
       attempt: 0,
       outcome: 'ok',
@@ -746,6 +748,7 @@ describe('makeAuditSink (decideCommit.ts)', () => {
     // logged for 'squad'. Keyed by decisionKind alone, the verdict below
     // would land here -- on a call that produced no answer at all.
     await sink.record({
+      prompt: 'test-prompt',
       decisionKind: 'squad',
       attempt: 1,
       outcome: 'provider-error',
@@ -776,6 +779,7 @@ describe('makeAuditSink (decideCommit.ts)', () => {
     const sink = makeAuditSink({ ...db, modelName: 'test-model' });
 
     await sink.record({
+      prompt: 'test-prompt',
       decisionKind: 'squad',
       attempt: 0,
       outcome: 'ok',
@@ -783,6 +787,7 @@ describe('makeAuditSink (decideCommit.ts)', () => {
       estNeuronsOut: 1,
     });
     await sink.record({
+      prompt: 'test-prompt',
       decisionKind: 'lineup',
       attempt: 0,
       outcome: 'ok',

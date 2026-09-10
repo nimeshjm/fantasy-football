@@ -261,7 +261,7 @@ export function makeAuditSink(deps: {
         ts: new Date().toISOString(),
         decisionKind: e.decisionKind,
         model: deps.modelName,
-        prompt: `attempt ${e.attempt}`,
+        prompt: e.prompt,
         rawResponse: e.rawResponse ?? e.reason ?? undefined,
         schemaValid: e.outcome === 'ok',
         // `e.reason` folded in here (not just `e.outcome`) so it survives
