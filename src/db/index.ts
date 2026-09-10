@@ -17,5 +17,6 @@ export * from './teamRatings';
 export * from './projections';
 export * from './squadState';
 export * from './logging';
+export * from './decisions';
 export * from './session';
 export * from './config';
