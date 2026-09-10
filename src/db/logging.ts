@@ -206,13 +206,19 @@ function safeParse(json: string | null): unknown {
  * for the dashboard (`src/dashboard.ts`), which needs to show planned/last
  * actions and gate overrides -- `idx_actions_log_ts` serves this without a
  * full table scan.
+ *
+ * Excludes HEALTHY `session-health` heartbeats: at ~24 rows/day they are the
+ * densest kind and would otherwise crowd real actions out of `limit`. A
+ * failed heartbeat is kept -- it's exactly the kind of action this table
+ * exists to surface.
  */
 export async function getRecentActions(db: D1Database, limit = 20): Promise<ActionLogRow[]> {
   const { results } = await db
     .prepare(
-      'SELECT id, ts, kind, intent, response, dry_run, source, ok FROM actions_log ORDER BY ts DESC LIMIT ?',
+      'SELECT id, ts, kind, intent, response, dry_run, source, ok FROM actions_log ' +
+        'WHERE kind != ? OR ok = 0 ORDER BY ts DESC LIMIT ?',
     )
-    .bind(limit)
+    .bind(SESSION_HEALTH_KIND, limit)
     .all<RawActionLogRow>();
   return results.map((r) => ({
     id: r.id,

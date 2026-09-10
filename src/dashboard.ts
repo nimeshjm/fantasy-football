@@ -17,6 +17,7 @@ import {
   DECISION_KINDS,
   getAiCallsForDecisions,
   getAllElements,
+  getAllEvents,
   getCurrentAndNextEvent,
   getDecisionById,
   getDecisionPage,
@@ -36,6 +37,7 @@ import {
   type AiCallRow,
   type DecisionWithAttempts,
   type ElementRow,
+  type EventRow,
 } from './db';
 import { createSessionStore } from './sessionStore';
 import { failureStreak, SESSION_ALERT_OPEN_KEY } from './sessionHealth';
@@ -94,9 +96,23 @@ function pickRow(pick: Pick, elementById: Map<number, ElementRow>): string {
     .join('/');
   const status = el && el.status !== 'a' ? ` (${escapeHtml(el.status)})` : '';
   const news = el?.news ? ` — ${escapeHtml(el.news)}` : '';
+  const gwPts = el ? String(el.event_points) : '?';
+  const totalPts = el ? String(el.total_points) : '?';
   return (
     `<tr><td>${escapeHtml(pick.position)}</td><td>${escapeHtml(name)}${status}</td>` +
-    `<td>${escapeHtml(pos)}</td><td>${escapeHtml(flags)}</td><td>${news}</td></tr>`
+    `<td>${escapeHtml(pos)}</td><td>${escapeHtml(flags)}</td>` +
+    `<td>${escapeHtml(gwPts)}</td><td>${escapeHtml(totalPts)}</td><td>${news}</td></tr>`
+  );
+}
+
+/** One row of the upcoming-decision-points table: every unfinished
+ * gameweek's deadline, in order -- each one is the next point the agent
+ * must act by (transfers, lineup, chip). */
+function decisionPointRow(e: EventRow, current: EventRow | null, next: EventRow | null): string {
+  const tag = e.id === current?.id ? 'current' : e.id === next?.id ? 'next' : '';
+  return (
+    `<tr><td>${escapeHtml(e.name)}</td><td>${escapeHtml(e.deadline_time)}</td>` +
+    `<td>${escapeHtml(tag)}</td></tr>`
   );
 }
 
@@ -232,7 +248,8 @@ function decisionCard(
     if (d.decision.picks) {
       const rows = d.decision.picks.map((p) => pickRow(p, elementById)).join('');
       body +=
-        '<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th><th>Notes</th></tr></thead>' +
+        '<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th>' +
+        '<th>GW pts</th><th>Total pts</th><th>Notes</th></tr></thead>' +
         `<tbody>${rows}</tbody></table>`;
     }
     if (d.decision.transfers && d.decision.transfers.length > 0) {
@@ -360,14 +377,20 @@ async function renderDashboardHtml(env: Env, token: string | null): Promise<stri
   const alertOpen = alertOpenRaw === '1';
   const cookieAge = describeAge(okState?.firstOkAt ?? null);
 
-  const [{ current, next }, elements, teams, recentActions, recentAiCalls] = await Promise.all([
-    getCurrentAndNextEvent(env.DB),
-    getAllElements(env.DB),
-    getTeams(env.DB),
-    getRecentActions(env.DB, 25),
-    getRecentAiCalls(env.DB, 25),
-  ]);
+  const [{ current, next }, allEvents, elements, teams, recentActions, recentAiCalls] =
+    await Promise.all([
+      getCurrentAndNextEvent(env.DB),
+      getAllEvents(env.DB),
+      getAllElements(env.DB),
+      getTeams(env.DB),
+      getRecentActions(env.DB, 25),
+      getRecentAiCalls(env.DB, 25),
+    ]);
   const elementById = new Map(elements.map((e) => [e.id, e] as const));
+
+  // Every unfinished gameweek's deadline, in order -- each one is a
+  // decision point the agent must act by before it passes.
+  const upcomingDecisionPoints = allEvents.filter((e) => !e.finished).slice(0, 6);
 
   const latestSquad = entry ? await getLatestSquadState(env.DB, entry) : null;
   const projections = next ? await getProjectionsForEvent(env.DB, next.id) : [];
@@ -386,6 +409,8 @@ async function renderDashboardHtml(env: Env, token: string | null): Promise<stri
         `<tr><td>${escapeHtml(el?.web_name ?? p.element_id)}</td>` +
         `<td>${el ? escapeHtml(POSITION_SHORT[el.element_type]) : '?'}</td>` +
         `<td>${el ? escapeHtml(teams.find((t) => t.id === el.team)?.short_name ?? '?') : '?'}</td>` +
+        `<td>${el ? escapeHtml(el.event_points) : '?'}</td>` +
+        `<td>${el ? escapeHtml(el.total_points) : '?'}</td>` +
         `<td>${p.xpts.toFixed(2)}</td></tr>`
       );
     })
@@ -415,17 +440,26 @@ async function renderDashboardHtml(env: Env, token: string | null): Promise<stri
   <span>Next deadline: ${escapeHtml(next?.deadline_time ?? '-')}</span>
 </div>
 
+<h2>Upcoming decision points</h2>
+${
+  upcomingDecisionPoints.length > 0
+    ? `<table><thead><tr><th>Gameweek</th><th>Deadline</th><th></th></tr></thead><tbody>${upcomingDecisionPoints
+        .map((e) => decisionPointRow(e, current, next))
+        .join('')}</tbody></table>`
+    : '<p>No upcoming gameweeks on record.</p>'
+}
+
 <h2>Current squad${latestSquad ? ` (event ${escapeHtml(latestSquad.event)})` : ''}</h2>
 ${
   latestSquad
-    ? `<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th><th>Notes</th></tr></thead><tbody>${squadRows}</tbody></table>`
+    ? `<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th><th>GW pts</th><th>Total pts</th><th>Notes</th></tr></thead><tbody>${squadRows}</tbody></table>`
     : '<p>No squad on record yet.</p>'
 }
 
 <h2>Top projected players${next ? ` (GW${escapeHtml(next.id)})` : ''}</h2>
 ${
   topProjections
-    ? `<table><thead><tr><th>Player</th><th>Pos</th><th>Club</th><th>xPts</th></tr></thead><tbody>${topProjections}</tbody></table>`
+    ? `<table><thead><tr><th>Player</th><th>Pos</th><th>Club</th><th>GW pts</th><th>Total pts</th><th>xPts</th></tr></thead><tbody>${topProjections}</tbody></table>`
     : '<p>No projections computed yet.</p>'
 }
 
