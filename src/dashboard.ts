@@ -14,8 +14,12 @@
 import { isAuthorized, notFound } from './adminAuth';
 import { checkSessionHealth, peekSession } from './api/session';
 import {
+  DECISION_KINDS,
+  getAiCallsForDecisions,
   getAllElements,
   getCurrentAndNextEvent,
+  getDecisionById,
+  getDecisionPage,
   getLatestSquadState,
   getNeuronsSpentToday,
   getProjectionsForEvent,
@@ -25,17 +29,19 @@ import {
   getRecentSessionBeats,
   getSessionOkState,
   getTeams,
+  groupDecisions,
   isDryRun,
   isEnabled,
   type ActionLogRow,
   type AiCallRow,
+  type DecisionWithAttempts,
   type ElementRow,
 } from './db';
 import { createSessionStore } from './sessionStore';
 import { failureStreak, SESSION_ALERT_OPEN_KEY } from './sessionHealth';
 import { getConfig } from './db';
 import { parseConfig, type Env } from './env';
-import { POSITION_SHORT, type Pick } from './types';
+import { POSITION_SHORT, type Pick, type TransferMove } from './types';
 
 /** How long the current cookie has been working, in whole days/hours. The
  * headline number issue #14 wants -- but a LOWER BOUND: `first_ok_at` is
@@ -69,7 +75,11 @@ function escapeHtml(value: unknown): string {
 export async function handleDashboard(request: Request, env: Env): Promise<Response> {
   if (!isAuthorized(request, env)) return notFound();
 
-  const html = await renderDashboardHtml(env);
+  // Query-param form only -- isAuthorized/extractToken in adminAuth.ts also
+  // accepts the header/bearer forms, but this only needs something to
+  // forward onto the links this page emits.
+  const token = new URL(request.url).searchParams.get('token');
+  const html = await renderDashboardHtml(env, token);
   return new Response(html, {
     headers: { 'content-type': 'text/html; charset=utf-8' },
   });
@@ -87,6 +97,14 @@ function pickRow(pick: Pick, elementById: Map<number, ElementRow>): string {
   return (
     `<tr><td>${escapeHtml(pick.position)}</td><td>${escapeHtml(name)}${status}</td>` +
     `<td>${escapeHtml(pos)}</td><td>${escapeHtml(flags)}</td><td>${news}</td></tr>`
+  );
+}
+
+function transferRow(t: TransferMove, elementById: Map<number, ElementRow>): string {
+  const nameFor = (id: number): string => elementById.get(id)?.web_name ?? `#${id}`;
+  return (
+    `<tr><td>${escapeHtml(nameFor(t.element_in))}</td><td>${escapeHtml(nameFor(t.element_out))}</td>` +
+    `<td>${escapeHtml(t.purchase_price)}</td><td>${escapeHtml(t.selling_price)}</td></tr>`
   );
 }
 
@@ -169,6 +187,114 @@ function safeJson(v: unknown): string {
   }
 }
 
+function attemptDetails(c: AiCallRow): string {
+  const verdict =
+    c.gateVerdict === null
+      ? '&mdash;'
+      : c.gateVerdict === 'override'
+        ? '<span class="tag gate">override</span>'
+        : escapeHtml(c.gateVerdict);
+  const summary =
+    `${escapeHtml(c.ts)} &mdash; ${escapeHtml(c.model)} &mdash; ` +
+    `schema: ${c.schemaValid === null ? '?' : c.schemaValid ? 'valid' : 'invalid'} &mdash; ` +
+    `repaired: ${c.repaired ? 'yes' : 'no'} &mdash; gate: ${verdict} &mdash; ` +
+    `${escapeHtml(gateScores(c))} &mdash; ${escapeHtml(neuronsCell(c))}`;
+  return (
+    `<details class="attempt"><summary>${summary}</summary>` +
+    `<details><summary>Prompt &amp; raw response</summary>` +
+    `<pre>${escapeHtml(c.prompt)}</pre>` +
+    `<pre>${escapeHtml(c.rawResponse ?? '')}</pre>` +
+    `</details></details>`
+  );
+}
+
+function decisionCard(
+  d: DecisionWithAttempts,
+  elementById: Map<number, ElementRow>,
+  opts: { expanded: boolean },
+): string {
+  const a = d.action;
+  const overrideNote =
+    a.source === 'deterministic-gate' ? ' <span class="tag gate">gate override</span>' : '';
+  const header =
+    `<span>${escapeHtml(a.ts)}</span> ` +
+    `<span class="tag">${escapeHtml(a.kind)}</span> ` +
+    `<span>${escapeHtml(a.source)}${overrideNote}</span> ` +
+    `<span>${a.ok ? '<span class="ok">ok</span>' : '<span class="tag err">failed</span>'}</span> ` +
+    `<span>${a.dryRun ? 'dry-run' : 'live'}</span>`;
+
+  let body = '';
+  if (d.decision) {
+    body += `<p>${escapeHtml(d.decision.reasoning)}</p>`;
+    if (d.decision.overrideReason) {
+      body += `<p><span class="tag gate">override reason</span> ${escapeHtml(d.decision.overrideReason)}</p>`;
+    }
+    if (d.decision.picks) {
+      const rows = d.decision.picks.map((p) => pickRow(p, elementById)).join('');
+      body +=
+        '<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th><th>Notes</th></tr></thead>' +
+        `<tbody>${rows}</tbody></table>`;
+    }
+    if (d.decision.transfers && d.decision.transfers.length > 0) {
+      const rows = d.decision.transfers.map((t) => transferRow(t, elementById)).join('');
+      body +=
+        '<table><thead><tr><th>In</th><th>Out</th><th>Purchase</th><th>Selling</th></tr></thead>' +
+        `<tbody>${rows}</tbody></table>`;
+    }
+  } else {
+    body += `<pre>${escapeHtml(safeJson(a.intent))}</pre>`;
+  }
+
+  const attempts =
+    d.attempts.length > 0
+      ? d.attempts.map(attemptDetails).join('')
+      : '<p>No attempts recorded.</p>';
+
+  return (
+    `<details class="decision-card"${opts.expanded ? ' open' : ''}>` +
+    `<summary>${header}</summary>` +
+    `<div class="decision-body">${body}<h4>Attempts</h4>${attempts}</div>` +
+    `</details>`
+  );
+}
+
+function orphanedSection(calls: AiCallRow[]): string {
+  if (calls.length === 0) return '';
+  return `<h2>Unattributed attempts</h2>${calls.map(attemptDetails).join('')}`;
+}
+
+/** Percent-encodes params via URLSearchParams, then escapes the resulting
+ * href for HTML attribute context -- neither step alone is safe (a raw
+ * token containing `&` would split into a second param; escaping alone
+ * would leave the attribute open). `token` is appended last so every link
+ * this page emits carries it forward, or the next click 404s. */
+function pageLink(
+  path: string,
+  params: Record<string, string | undefined>,
+  token: string | null,
+): string {
+  const search = new URLSearchParams();
+  for (const [k, v] of Object.entries(params)) {
+    if (v !== undefined) search.set(k, v);
+  }
+  if (token !== null) search.set('token', token);
+  const qs = search.toString();
+  return escapeHtml(qs ? `${path}?${qs}` : path);
+}
+
+function currentKindParam(kinds: readonly string[] | undefined): string | undefined {
+  return kinds && kinds.length === 1 ? kinds[0] : undefined;
+}
+
+// Duplicates getDecisionPage's own clamp (src/db/decisions.ts) since that
+// file isn't in scope here -- kept in sync by hand.
+const DEFAULT_DECISIONS_LIMIT = 25;
+const MAX_DECISIONS_LIMIT = 100;
+
+function clampDecisionsLimit(limit: number | undefined): number {
+  return Math.min(Math.max(limit ?? DEFAULT_DECISIONS_LIMIT, 1), MAX_DECISIONS_LIMIT);
+}
+
 const STYLE = `
   body { font: 14px/1.4 system-ui, sans-serif; margin: 2rem; color: #1a1a1a; background: #fafafa; }
   h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-top: 2rem; border-bottom: 1px solid #ddd; padding-bottom: .25rem; }
@@ -181,9 +307,17 @@ const STYLE = `
   .tag.err { background: #fecaca; }
   .ok { color: #15803d; } .bad { color: #b91c1c; }
   pre { white-space: pre-wrap; word-break: break-word; margin: 0; max-width: 40rem; font-size: .75rem; }
+  .decision-card { border: 1px solid #ddd; border-radius: 6px; margin-top: 1rem; padding: .5rem .75rem; background: #fff; }
+  .decision-card > summary { cursor: pointer; font-weight: 600; }
+  .decision-card[open] { background: #fffef5; }
+  .decision-body { margin-top: .5rem; }
+  .decision-body h4 { font-size: .9rem; margin: .75rem 0 .25rem; }
+  details.attempt { margin: .3rem 0 .3rem 1rem; }
+  details.attempt summary, details.attempt details summary { cursor: pointer; font-size: .85rem; }
+  details.attempt details { margin: .3rem 0 .3rem 1rem; }
 `;
 
-async function renderDashboardHtml(env: Env): Promise<string> {
+async function renderDashboardHtml(env: Env, token: string | null): Promise<string> {
   const config = parseConfig(env);
   const dryRunOverride = await isDryRun(env.DB);
   const enabled = await isEnabled(env.DB);
@@ -300,7 +434,98 @@ ${
 <tbody>${recentActions.map(actionRow).join('') || '<tr><td colspan="6">None yet.</td></tr>'}</tbody></table>
 
 <h2>AI call log</h2>
+<p><a href="${pageLink('/decisions', {}, token)}">Full decision log &rarr;</a></p>
 <table><thead><tr><th>Time</th><th>Kind</th><th>Model</th><th>Schema</th><th>Repaired</th><th>Gate</th><th>Scores</th><th>Neurons</th><th>Outcome</th></tr></thead>
 <tbody>${recentAiCalls.map(aiCallRow).join('') || '<tr><td colspan="9">None yet.</td></tr>'}</tbody></table>
+`;
+}
+
+/**
+ * `GET /decisions`: newest-first, keyset-paginated list of decision cards.
+ * Routing (query-string parsing, 404s) is a later agent's job -- this just
+ * renders the page for whatever `opts` it's given.
+ */
+export async function renderDecisionsPage(
+  env: Env,
+  opts: { token: string | null; kinds?: readonly string[]; before?: string; limit?: number },
+): Promise<string> {
+  const limit = clampDecisionsLimit(opts.limit);
+  const [elements, page] = await Promise.all([
+    getAllElements(env.DB),
+    getDecisionPage(env.DB, { kinds: opts.kinds, before: opts.before, limit }),
+  ]);
+  const elementById = new Map(elements.map((e) => [e.id, e] as const));
+  const aiCalls = await getAiCallsForDecisions(env.DB, page);
+  const { decisions, orphaned } = groupDecisions(page, aiCalls);
+
+  // groupDecisions re-sorts oldest-first; `page` itself is the newest-first
+  // order this listing should render in.
+  const cards = decisions
+    .slice()
+    .reverse()
+    .map((d) => decisionCard(d, elementById, { expanded: false }))
+    .join('');
+
+  const kindParam = currentKindParam(opts.kinds);
+  const hasMore = page.length === limit;
+  const nextHref = hasMore
+    ? pageLink('/decisions', { before: page[page.length - 1]!.ts, kind: kindParam }, opts.token)
+    : null;
+
+  const kindLinks = ['all', ...DECISION_KINDS]
+    .map((k) => {
+      const href = pageLink('/decisions', { kind: k === 'all' ? undefined : k }, opts.token);
+      return `<a href="${href}">${escapeHtml(k)}</a>`;
+    })
+    .join(' | ');
+
+  return `<!doctype html>
+<title>Decision log</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>${STYLE}</style>
+<h1>Decision log</h1>
+<p><a href="${pageLink('/', {}, opts.token)}">&larr; Dashboard</a></p>
+<p>${kindLinks}</p>
+
+${cards || '<p>No decisions recorded.</p>'}
+
+${orphanedSection(orphaned)}
+
+${nextHref ? `<p><a href="${nextHref}">Next page &rarr;</a></p>` : ''}
+`;
+}
+
+/**
+ * `GET /decisions/:id` permalink view. Returns `null` when `id` names no
+ * `actions_log` row, or names one that isn't a decision kind (e.g.
+ * `session-health`) -- either way the caller turns it into a 404.
+ */
+export async function renderDecisionPage(
+  env: Env,
+  id: number,
+  token: string | null,
+): Promise<string | null> {
+  const action = await getDecisionById(env.DB, id);
+  if (action === null) return null;
+
+  const [elements, aiCalls] = await Promise.all([
+    getAllElements(env.DB),
+    getAiCallsForDecisions(env.DB, [action]),
+  ]);
+  const elementById = new Map(elements.map((e) => [e.id, e] as const));
+  const { decisions } = groupDecisions([action], aiCalls);
+  if (decisions.length === 0) return null;
+  const decision = decisions[0]!;
+
+  return `<!doctype html>
+<title>Decision #${escapeHtml(id)}</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>${STYLE}</style>
+<h1>Decision #${escapeHtml(id)}</h1>
+<p><a href="${pageLink('/decisions', {}, token)}">&larr; All decisions</a></p>
+
+${decisionCard(decision, elementById, { expanded: true })}
 `;
 }
