@@ -12,11 +12,17 @@
  * With a whole season (2/3/whatever) still ahead and only a handful of
  * gameweeks played, a per-team maximum-likelihood fit is extremely noisy --
  * one 4-0 in a team's only game so far would otherwise swing its rating
- * wildly. Every team-level parameter is therefore fit with additive
- * ("pseudo-match") ridge regularisation toward the league-mean rating of
- * 1.0, weighted so that a team with few games played is pulled hard toward
- * the mean and a team with more evidence is trusted more. This is the
- * "regularise hard toward the league mean" the model spec calls for.
+ * wildly. Every team-level parameter is therefore fit with regularisation
+ * toward the league-mean rating of 1.0, weighted so that a team with few
+ * games played is pulled hard toward the mean and a team with more
+ * evidence is trusted more. This is the "regularise hard toward the league
+ * mean" the model spec calls for.
+ *
+ * HOW HARD to shrink is the single most consequential choice in the fit at
+ * this sample size (~3 games per team against 36 free parameters), so it
+ * is the axis the two estimator arms differ on -- see `RatingsEstimator`.
+ * Both arms share the same model form, the same league-wide scalars and
+ * the same alternating fit; they differ only in the per-team update rule.
  *
  * Model form (a standard simplification of the Maher / Dixon-Coles
  * attack-defence model):
@@ -53,7 +59,22 @@ export interface RatingsModel {
   homeAdvantage: number;
 }
 
+/** Fixed ridge shrinkage toward 1.0, at a strength hand-picked via
+ * `shrinkage` (default `DEFAULT_SHRINKAGE` pseudo-matches). The original
+ * arm, and still the default: its behaviour is the one every existing
+ * snapshot and eval was recorded against. */
+export const RATINGS_RIDGE = 'ridge' as const;
+/** Shrinkage toward 1.0 at a strength estimated FROM the fixture list
+ * rather than hand-picked, by comparing the observed spread in team
+ * ratings against the spread Poisson scoring noise alone would produce.
+ * See `empiricalBayesUpdate` for the derivation. */
+export const RATINGS_EMPIRICAL_BAYES = 'empirical-bayes' as const;
+export type RatingsEstimator = typeof RATINGS_RIDGE | typeof RATINGS_EMPIRICAL_BAYES;
+
 export interface FitRatingsOptions {
+  /** Which per-team update rule to fit with. Defaults to `'ridge'`; the
+   * arms are documented on the two constants above. */
+  estimator?: RatingsEstimator;
   /**
    * Pseudo-matches of "average team" evidence blended into every team's
    * attack/defence estimate, expressed in units of matches. With ~4 real
@@ -61,6 +82,9 @@ export interface FitRatingsOptions {
    * defaults high enough that even a team's whole sample is only a
    * fraction of the weight behind its final rating -- deliberately
    * "regularising hard toward the league mean" per the brief.
+   *
+   * Only the `'ridge'` arm reads this; `'empirical-bayes'` derives the
+   * equivalent strength from the data instead.
    */
   shrinkage?: number;
   /** Alternating IPF-style update rounds for the attack/defence fit. The
@@ -72,7 +96,9 @@ export interface FitRatingsOptions {
   homeAdvantagePrior?: number;
   /** Pseudo-matches of league-wide evidence blended into the home
    * advantage estimate. League-wide samples accumulate faster than any one
-   * team's, so this is much smaller than `shrinkage`. */
+   * team's, so this is much smaller than `shrinkage`. Shared by both
+   * estimator arms -- home advantage is a single league-wide scalar with
+   * far more evidence behind it than any one team's rating. */
   homeAdvantageShrinkage?: number;
   /** Attack/defence factors are clamped to this range after fitting, so a
    * single small sample can't produce an absurd multiplier. */
@@ -84,6 +110,9 @@ const DEFAULT_MAX_ITERATIONS = 25;
 const DEFAULT_HOME_ADVANTAGE_PRIOR = 1.15;
 const DEFAULT_HOME_ADVANTAGE_SHRINKAGE = 10;
 const DEFAULT_CLAMP_RANGE: readonly [number, number] = [0.35, 2.75];
+/** Fewest teams the empirical-Bayes arm will estimate a between-team
+ * variance from. See `empiricalBayesUpdate`. */
+const MIN_TEAMS_FOR_EB = 3;
 /** Neutral rating for a team with no finished fixtures at all (e.g. a
  * blank-gameweek edge case, or data not loaded yet). */
 const NEUTRAL_RATING: TeamRating = { attack: 1, defence: 1 };
@@ -96,6 +125,112 @@ interface TeamMatch {
   goalsAgainst: number;
 }
 
+/** One team's sufficient statistics for a single half-update: goals it
+ * actually recorded, goals the model currently expects it to record, and
+ * how many matches those came from. `observed / expected` is the unshrunk
+ * maximum-likelihood ratio; every estimator's job is to decide how far to
+ * trust it. */
+interface TeamStat {
+  id: number;
+  observed: number;
+  expected: number;
+  games: number;
+}
+
+/**
+ * Both update rules return a blend `1 + w * (ratio - 1)` for each team --
+ * they only disagree about `w`. Writing them in that shared form (rather
+ * than as two different-looking algebraic expressions) is what makes the
+ * A/B a comparison of one decision instead of two rewrites.
+ */
+type UpdateRule = (stats: readonly TeamStat[]) => Map<number, number>;
+
+/** Additive pseudo-match ridge: blend in `shrinkage` matches' worth of
+ * "exactly average" evidence. Equivalent to `w = games / (games +
+ * shrinkage)`, i.e. a team needs `shrinkage` matches of its own before its
+ * record carries half the weight of its final rating. */
+function ridgeUpdate(stats: readonly TeamStat[], shrinkage: number): Map<number, number> {
+  const out = new Map<number, number>();
+  for (const t of stats) {
+    if (t.games === 0 || t.expected <= 0) continue;
+    const avgExpectedPerGame = t.expected / t.games;
+    out.set(
+      t.id,
+      (t.observed + shrinkage * avgExpectedPerGame) / (t.expected + shrinkage * avgExpectedPerGame),
+    );
+  }
+  return out;
+}
+
+/**
+ * Empirical-Bayes shrinkage: estimate how much real spread there is in
+ * team strengths, and shrink by exactly enough to remove the rest.
+ *
+ * The ridge arm asserts a shrinkage strength. This one derives it. Goals
+ * are Poisson, so for team i with `expected` goals under the current
+ * model, `Var(observed) ~= expected` and the raw ratio
+ * `r_i = observed / expected` has sampling variance
+ *
+ *   withinVar_i = expected_i / expected_i^2 = 1 / expected_i
+ *
+ * -- the noise floor: how far `r_i` scatters from team i's TRUE rating
+ * purely by chance. The observed scatter of `r_i` across teams contains
+ * that noise plus whatever genuine spread exists, so method of moments
+ * gives the genuine part by subtraction:
+ *
+ *   betweenVar = Var(r) - mean(withinVar)
+ *
+ * and the posterior weight on team i's own record is the usual ratio of
+ * signal to signal-plus-noise, using that team's OWN precision:
+ *
+ *   w_i = betweenVar / (betweenVar + withinVar_i)
+ *
+ * A team with more matches played has a smaller `withinVar_i` and so is
+ * trusted more, which is the same qualitative behaviour as ridge -- but
+ * the overall severity now falls out of the fixture list instead of a
+ * constant. When results are so tight that observed scatter is entirely
+ * explicable as scoring noise, `betweenVar` clamps to 0, every `w_i` is 0
+ * and the whole league collapses to exactly 1.0: "no detectable spread
+ * beyond chance, so claim none". That is the expected GW2 behaviour on a
+ * single round of fixtures, not a degenerate case to guard against.
+ *
+ * Two details that matter at this sample size:
+ *
+ *  - Scatter is measured about 1.0, not about the sample mean of the
+ *    ratios. 1.0 is not an estimated quantity here -- `attack`/`defence`
+ *    are DEFINED as multipliers centred on the league mean -- so there is
+ *    no degree of freedom to give up and no `n-1` correction to make.
+ *  - `betweenVar` is a variance estimated across teams, so it needs teams
+ *    to estimate from. Below `MIN_TEAMS_FOR_EB` the between-team scatter
+ *    is dominated by its own sampling error and the arm would confidently
+ *    read one lopsided scoreline as league-wide spread, so it shrinks
+ *    fully instead. Three is the James-Stein floor: shrinkage toward a
+ *    known mean only dominates the raw estimate from dimension 3 up.
+ */
+function empiricalBayesUpdate(stats: readonly TeamStat[]): Map<number, number> {
+  const usable = stats.filter((t) => t.games > 0 && t.expected > 0);
+  const out = new Map<number, number>();
+  if (usable.length === 0) return out;
+  if (usable.length < MIN_TEAMS_FOR_EB) {
+    for (const t of usable) out.set(t.id, 1);
+    return out;
+  }
+
+  const ratios = usable.map((t) => t.observed / t.expected);
+  const withinVars = usable.map((t) => 1 / t.expected);
+  const totalVar = ratios.reduce((acc, r) => acc + (r - 1) ** 2, 0) / ratios.length;
+  const meanWithinVar = withinVars.reduce((a, b) => a + b, 0) / withinVars.length;
+  // Clamped at 0: a negative variance is not a smaller variance, it is
+  // "the data cannot resolve any spread at all".
+  const betweenVar = Math.max(0, totalVar - meanWithinVar);
+
+  for (const [i, t] of usable.entries()) {
+    const w = betweenVar / (betweenVar + withinVars[i]!);
+    out.set(t.id, 1 + w * (ratios[i]! - 1));
+  }
+  return out;
+}
+
 /**
  * Fits attack/defence ratings and home advantage from played fixtures.
  *
@@ -104,11 +239,16 @@ interface TeamMatch {
  * returned map -- callers should treat a missing team as `{attack: 1,
  * defence: 1}` (a promoted team with no history is, by definition, exactly
  * the league-average unknown).
+ *
+ * `opts.estimator` selects the per-team update rule; everything else about
+ * the fit is shared across arms. See `test/ratingsBacktest.test.ts` for
+ * the held-out-gameweek comparison between them.
  */
 export function fitTeamRatings(
   fixtures: readonly Fixture[],
   opts: FitRatingsOptions = {},
 ): RatingsModel {
+  const estimator = opts.estimator ?? RATINGS_RIDGE;
   const shrinkage = opts.shrinkage ?? DEFAULT_SHRINKAGE;
   const maxIterations = opts.maxIterations ?? DEFAULT_MAX_ITERATIONS;
   const homeAdvantagePrior = opts.homeAdvantagePrior ?? DEFAULT_HOME_ADVANTAGE_PRIOR;
@@ -173,48 +313,56 @@ export function fitTeamRatings(
   for (const id of teamIds) matchesByTeam.set(id, []);
   for (const m of matches) matchesByTeam.get(m.team)!.push(m);
 
-  // Iterative proportional fitting: alternately re-estimate attack holding
-  // defence fixed, then defence holding attack fixed. Each update is a
-  // ridge-shrunk ratio estimate (observed / expected-under-current-model),
-  // shrunk toward 1.0 by `shrinkage` matches' worth of "average" evidence.
-  for (let iter = 0; iter < maxIterations; iter++) {
+  const update: UpdateRule =
+    estimator === RATINGS_EMPIRICAL_BAYES
+      ? empiricalBayesUpdate
+      : (stats) => ridgeUpdate(stats, shrinkage);
+
+  /** Sufficient statistics for every team under one half of the fit.
+   * `expectedFor` is the model's current rate for the stat being
+   * re-estimated, holding the other side of the model fixed. */
+  const collect = (
+    goalsOf: (m: TeamMatch) => number,
+    expectedFor: (m: TeamMatch) => number,
+  ): TeamStat[] => {
+    const stats: TeamStat[] = [];
     for (const id of teamIds) {
       const teamMatches = matchesByTeam.get(id)!;
-      let numerator = 0;
-      let denominator = 0;
+      let observed = 0;
+      let expected = 0;
       for (const m of teamMatches) {
-        const baseRate = leagueAvgGoals * (m.isHome ? homeAdvantage : 1);
-        const expected = baseRate * defence.get(m.opponent)!;
-        numerator += m.goalsFor;
-        denominator += expected;
+        observed += goalsOf(m);
+        expected += expectedFor(m);
       }
-      const games = teamMatches.length;
-      if (games === 0 || denominator <= 0) continue;
-      const avgDenomPerGame = denominator / games;
-      const shrunk =
-        (numerator + shrinkage * avgDenomPerGame) / (denominator + shrinkage * avgDenomPerGame);
-      attack.set(id, clamp(shrunk, clampMin, clampMax));
+      stats.push({ id, observed, expected, games: teamMatches.length });
+    }
+    return stats;
+  };
+
+  // Iterative proportional fitting: alternately re-estimate attack holding
+  // defence fixed, then defence holding attack fixed. Each half-update is
+  // a ratio estimate (observed / expected-under-current-model) shrunk
+  // toward 1.0 by whichever `update` rule this arm selected. A team the
+  // rule declined to estimate (no games, or no expected goals to divide
+  // by) keeps its current value rather than being reset.
+  for (let iter = 0; iter < maxIterations; iter++) {
+    const attackStats = collect(
+      (m) => m.goalsFor,
+      (m) => leagueAvgGoals * (m.isHome ? homeAdvantage : 1) * defence.get(m.opponent)!,
+    );
+    for (const [id, value] of update(attackStats)) {
+      attack.set(id, clamp(value, clampMin, clampMax));
     }
 
-    for (const id of teamIds) {
-      const teamMatches = matchesByTeam.get(id)!;
-      let numerator = 0;
-      let denominator = 0;
-      for (const m of teamMatches) {
-        // m.isHome describes `team` (the defender here); the opponent's
-        // scoring rate is boosted by home advantage when the OPPONENT was
-        // at home, i.e. when this team was away.
-        const baseRate = leagueAvgGoals * (m.isHome ? 1 : homeAdvantage);
-        const expected = baseRate * attack.get(m.opponent)!;
-        numerator += m.goalsAgainst;
-        denominator += expected;
-      }
-      const games = teamMatches.length;
-      if (games === 0 || denominator <= 0) continue;
-      const avgDenomPerGame = denominator / games;
-      const shrunk =
-        (numerator + shrinkage * avgDenomPerGame) / (denominator + shrinkage * avgDenomPerGame);
-      defence.set(id, clamp(shrunk, clampMin, clampMax));
+    // m.isHome describes `team` (the defender here); the opponent's
+    // scoring rate is boosted by home advantage when the OPPONENT was at
+    // home, i.e. when this team was away.
+    const defenceStats = collect(
+      (m) => m.goalsAgainst,
+      (m) => leagueAvgGoals * (m.isHome ? 1 : homeAdvantage) * attack.get(m.opponent)!,
+    );
+    for (const [id, value] of update(defenceStats)) {
+      defence.set(id, clamp(value, clampMin, clampMax));
     }
   }
 

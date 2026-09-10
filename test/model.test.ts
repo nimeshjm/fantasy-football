@@ -2,8 +2,14 @@
  * Tests for src/model/ratings.ts and src/model/projection.ts.
  */
 import { describe, expect, it } from 'vitest';
-import { expectedGoals, fitTeamRatings } from '../src/model/ratings';
 import {
+  expectedGoals,
+  fitTeamRatings,
+  RATINGS_EMPIRICAL_BAYES,
+  RATINGS_RIDGE,
+} from '../src/model/ratings';
+import {
+  groupFixturesByTeam,
   poissonFloorDivExpectation,
   projectAll,
   projectPlayer,
@@ -167,6 +173,116 @@ describe('fitTeamRatings', () => {
     expect(Number.isFinite(eg.home)).toBe(true);
     expect(Number.isFinite(eg.away)).toBe(true);
   });
+
+  it('defaults to the ridge estimator', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 3, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 1, team_a_score: 2 }),
+    ];
+    const implicit = fitTeamRatings(fixtures);
+    const explicit = fitTeamRatings(fixtures, { estimator: RATINGS_RIDGE });
+    expect(implicit.ratings.get(1)!.attack).toBe(explicit.ratings.get(1)!.attack);
+    expect(implicit.ratings.get(1)!.defence).toBe(explicit.ratings.get(1)!.defence);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// fitTeamRatings -- the empirical-bayes estimator arm
+// ---------------------------------------------------------------------------
+
+describe("fitTeamRatings (estimator: 'empirical-bayes')", () => {
+  it('collapses every rating to exactly 1.0 when the spread is pure scoring noise', () => {
+    // Four teams, one round of fixtures, every game 1-1. There is no
+    // scatter at all to explain, so betweenVar clamps to 0 and the arm
+    // claims no team is distinguishable from league-average. This is the
+    // GW2 path -- a single round of real fixtures is close to this case.
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 1, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 3, team_a: 4, team_h_score: 1, team_a_score: 1 }),
+    ];
+    const model = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    expect(model.ratings.size).toBe(4);
+    for (const r of model.ratings.values()) {
+      expect(r.attack).toBeCloseTo(1, 10);
+      expect(r.defence).toBeCloseTo(1, 10);
+    }
+  });
+
+  it('shrinks fully when there are too few teams to estimate a between-team variance', () => {
+    // One 5-0 in a two-team league. Two teams is below the arm's
+    // MIN_TEAMS_FOR_EB floor, so there is no population to estimate
+    // between-team spread from and it returns exactly the league mean.
+    // Ridge, which asserts its strength rather than estimating it, still
+    // lets some of that scoreline through.
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 5, team_a_score: 0 }),
+    ];
+    const eb = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    const ridge = fitTeamRatings(fixtures, { estimator: RATINGS_RIDGE });
+    expect(Math.abs(eb.ratings.get(1)!.attack - 1)).toBeLessThan(
+      Math.abs(ridge.ratings.get(1)!.attack - 1),
+    );
+  });
+
+  it('separates a genuinely dominant team once the spread outgrows the noise floor', () => {
+    // Team 1 beats everyone 4-0 home and away over 8 games; the others
+    // draw 1-1. That scatter is far too large to be Poisson noise, so
+    // betweenVar is positive and the arm does rate team 1 apart.
+    const fixtures: Fixture[] = [];
+    let id = 1;
+    for (const opponent of [2, 3, 4, 5]) {
+      fixtures.push(
+        makeFixture({ id: id++, team_h: 1, team_a: opponent, team_h_score: 4, team_a_score: 0 }),
+      );
+      fixtures.push(
+        makeFixture({ id: id++, team_h: opponent, team_a: 1, team_h_score: 0, team_a_score: 4 }),
+      );
+    }
+    fixtures.push(
+      makeFixture({ id: id++, team_h: 2, team_a: 3, team_h_score: 1, team_a_score: 1 }),
+    );
+    fixtures.push(
+      makeFixture({ id: id++, team_h: 4, team_a: 5, team_h_score: 1, team_a_score: 1 }),
+    );
+
+    const model = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES });
+    const team1 = model.ratings.get(1)!;
+    const team2 = model.ratings.get(2)!;
+    expect(team1.attack).toBeGreaterThan(team2.attack);
+    expect(team1.defence).toBeLessThan(team2.defence);
+  });
+
+  it('ignores `shrinkage`, which is a ridge-only knob', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 4, team_a_score: 0 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 0, team_a_score: 3 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 4, team_h_score: 1, team_a_score: 1 }),
+      makeFixture({ id: 4, team_h: 4, team_a: 3, team_h_score: 2, team_a_score: 1 }),
+    ];
+    const a = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES, shrinkage: 1 });
+    const b = fitTeamRatings(fixtures, { estimator: RATINGS_EMPIRICAL_BAYES, shrinkage: 500 });
+    expect(a.ratings.get(1)!.attack).toBe(b.ratings.get(1)!.attack);
+  });
+
+  it('keeps ratings finite and inside the clamp range on a lopsided fixture list', () => {
+    const fixtures: Fixture[] = [
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 9, team_a_score: 0 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 3, team_h_score: 0, team_a_score: 7 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 1, team_h_score: 0, team_a_score: 0 }),
+    ];
+    const model = fitTeamRatings(fixtures, {
+      estimator: RATINGS_EMPIRICAL_BAYES,
+      clampRange: [0.35, 2.75],
+    });
+    for (const r of model.ratings.values()) {
+      expect(Number.isFinite(r.attack)).toBe(true);
+      expect(Number.isFinite(r.defence)).toBe(true);
+      expect(r.attack).toBeGreaterThanOrEqual(0.35);
+      expect(r.attack).toBeLessThanOrEqual(2.75);
+      expect(r.defence).toBeGreaterThanOrEqual(0.35);
+      expect(r.defence).toBeLessThanOrEqual(2.75);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -271,7 +387,7 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
     );
     const proj = projectPlayer(el, 5, {
       strategy: STRATEGY_MODEL_V2,
-      fixturesByTeam: new Map([[1, { opponent: 2, isHome: true }]]),
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
       trailingStatsByElement: new Map([[100, trailing]]),
     });
     expect(proj.xmins).toBeGreaterThan(0);
@@ -305,11 +421,11 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
 
     const projVsWeakDefence = projectPlayer(forward, 5, {
       ...common,
-      fixturesByTeam: new Map([[10, { opponent: 20, isHome: true }]]),
+      fixturesByTeam: new Map([[10, [{ opponent: 20, isHome: true }]]]),
     });
     const projVsStrongDefence = projectPlayer(forward, 5, {
       ...common,
-      fixturesByTeam: new Map([[10, { opponent: 30, isHome: true }]]),
+      fixturesByTeam: new Map([[10, [{ opponent: 30, isHome: true }]]]),
     });
 
     expect(projVsWeakDefence.xpts).toBeGreaterThan(projVsStrongDefence.xpts);
@@ -336,8 +452,8 @@ describe('projectPlayer / projectAll (model-v2 strategy)', () => {
     const opts = {
       strategy: STRATEGY_MODEL_V2,
       fixturesByTeam: new Map([
-        [1, { opponent: 99, isHome: true }],
-        [2, { opponent: 98, isHome: true }],
+        [1, [{ opponent: 99, isHome: true }]],
+        [2, [{ opponent: 98, isHome: true }]],
       ]),
     };
     const cheapProj = projectPlayer(cheapKeeper, 5, opts, positionAvgCost);
@@ -390,8 +506,8 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
       [fwd.id, trailingFor(fwd.id, { shots_on_target: 4, goals_scored: 2 })],
     ]);
     const fixturesByTeam = new Map([
-      [1, { opponent: 2, isHome: true }],
-      [2, { opponent: 1, isHome: false }],
+      [1, [{ opponent: 2, isHome: true }]],
+      [2, [{ opponent: 1, isHome: false }]],
     ]);
 
     const projections = projectAll(elements, 5, {
@@ -439,7 +555,7 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
     ]);
     // Team 1 (blankTeamPlayer's team) is absent from the map -- a blank
     // gameweek for that team only. Team 2 has a fixture in the same event.
-    const fixturesByTeam = new Map([[2, { opponent: 3, isHome: true }]]);
+    const fixturesByTeam = new Map([[2, [{ opponent: 3, isHome: true }]]]);
 
     const [blankResult, fixturedResult] = projectAll([blankTeamPlayer, fixturedTeamPlayer], 5, {
       strategy: STRATEGY_MODEL_V2,
@@ -450,5 +566,175 @@ describe("projectAll (model-v2 strategy) -- issue #24's missing assertion", () =
     expect(blankResult).toMatchObject({ xmins: 0, xpts: 0 });
     expect(fixturedResult!.xmins).toBeGreaterThan(0);
     expect(fixturedResult!.xpts).toBeGreaterThan(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Double gameweeks (projection.ts's per-fixture loop + groupFixturesByTeam)
+// ---------------------------------------------------------------------------
+
+describe('groupFixturesByTeam', () => {
+  it('gives each team one entry per fixture, home and away', () => {
+    const byTeam = groupFixturesByTeam([
+      { team_h: 1, team_a: 2 },
+      { team_h: 3, team_a: 4 },
+    ]);
+    expect(byTeam.get(1)).toEqual([{ opponent: 2, isHome: true }]);
+    expect(byTeam.get(2)).toEqual([{ opponent: 1, isHome: false }]);
+    expect(byTeam.get(3)).toEqual([{ opponent: 4, isHome: true }]);
+  });
+
+  it('appends both fixtures for a team playing twice, rather than dropping the first', () => {
+    // The regression this helper exists for: a `set()` per fixture would
+    // leave team 1 with only the SECOND fixture (opponent 3).
+    const byTeam = groupFixturesByTeam([
+      { team_h: 1, team_a: 2 },
+      { team_h: 3, team_a: 1 },
+    ]);
+    expect(byTeam.get(1)).toEqual([
+      { opponent: 2, isHome: true },
+      { opponent: 3, isHome: false },
+    ]);
+  });
+
+  it('preserves fixture order, so a list in kickoff order stays in kickoff order', () => {
+    const byTeam = groupFixturesByTeam([
+      { team_h: 5, team_a: 1 },
+      { team_h: 1, team_a: 9 },
+    ]);
+    expect(byTeam.get(1)).toEqual([
+      { opponent: 5, isHome: false },
+      { opponent: 9, isHome: true },
+    ]);
+  });
+
+  it('omits a team with no fixture in the event (blank gameweek)', () => {
+    const byTeam = groupFixturesByTeam([{ team_h: 1, team_a: 2 }]);
+    expect(byTeam.has(3)).toBe(false);
+  });
+});
+
+describe('projectPlayer (model-v2) -- double gameweeks', () => {
+  const nailedForward = () =>
+    makeElement({ id: 700, team: 1, element_type: Position.FWD, now_cost: 80, status: 'a' });
+  const trailingFourNineties = () =>
+    new Map([
+      [
+        700,
+        [1, 2, 3, 4].map((event) =>
+          makeGwStats({
+            element_id: 700,
+            event,
+            fixture_id: event,
+            minutes: 90,
+            goals_scored: 1,
+            shots_on_target: 3,
+          }),
+        ),
+      ],
+    ]);
+
+  it('doubles xmins and xpts when a team plays the same fixture twice', () => {
+    // Two identical fixtures means every per-match term is identical, so
+    // the gameweek total must be exactly twice the single-fixture total --
+    // including the appearance points and the floor(n/2) shot bonus, which
+    // are per match and would NOT double if the two were pooled into one
+    // bigger lambda.
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const single = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+      trailingStatsByElement: trailing,
+    });
+    const double = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 2, isHome: true },
+          ],
+        ],
+      ]),
+      trailingStatsByElement: trailing,
+    });
+    expect(double.xmins).toBeCloseTo(single.xmins * 2, 10);
+    expect(double.xpts).toBeCloseTo(single.xpts * 2, 10);
+  });
+
+  it('scores a double against two different opponents as the sum of the two singles', () => {
+    // The point of the per-fixture loop: each leg is priced against its
+    // OWN opponent, so an easy leg and a hard leg are not averaged into
+    // one notional fixture.
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const ratings = fitTeamRatings([
+      makeFixture({ id: 1, team_h: 1, team_a: 2, team_h_score: 2, team_a_score: 1 }),
+      makeFixture({ id: 2, team_h: 2, team_a: 1, team_h_score: 0, team_a_score: 3 }),
+      makeFixture({ id: 3, team_h: 3, team_a: 4, team_h_score: 5, team_a_score: 0 }),
+      makeFixture({ id: 4, team_h: 4, team_a: 3, team_h_score: 0, team_a_score: 4 }),
+    ]);
+    const base = { strategy: STRATEGY_MODEL_V2, ratings, trailingStatsByElement: trailing };
+
+    const legA = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+    });
+    const legB = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([[1, [{ opponent: 4, isHome: false }]]]),
+    });
+    const both = projectPlayer(el, 5, {
+      ...base,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 4, isHome: false },
+          ],
+        ],
+      ]),
+    });
+
+    expect(both.xpts).toBeCloseTo(legA.xpts + legB.xpts, 10);
+    // And it is genuinely two different prices, not the same leg twice.
+    expect(legA.xpts).not.toBeCloseTo(legB.xpts, 4);
+  });
+
+  it('ranks a double above an otherwise identical single', () => {
+    const el = nailedForward();
+    const trailing = trailingFourNineties();
+    const single = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, [{ opponent: 2, isHome: true }]]]),
+      trailingStatsByElement: trailing,
+    });
+    const double = projectPlayer(el, 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([
+        [
+          1,
+          [
+            { opponent: 2, isHome: true },
+            { opponent: 3, isHome: false },
+          ],
+        ],
+      ]),
+      trailingStatsByElement: trailing,
+    });
+    expect(double.xpts).toBeGreaterThan(single.xpts);
+  });
+
+  it('treats a present-but-empty fixture list as a blank gameweek', () => {
+    const proj = projectPlayer(nailedForward(), 5, {
+      strategy: STRATEGY_MODEL_V2,
+      fixturesByTeam: new Map([[1, []]]),
+      trailingStatsByElement: trailingFourNineties(),
+    });
+    expect(proj.xmins).toBe(0);
+    expect(proj.xpts).toBe(0);
   });
 });

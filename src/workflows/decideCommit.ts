@@ -99,7 +99,12 @@ import {
 import type { ShortlistEntry } from '../ai/prompts';
 import { selectProvider, type LlmProvider } from '../ai/provider';
 import { candidateTransfers } from '../optimizer/transfers';
-import { projectAll, STRATEGY_MODEL_V2, type UpcomingFixtureInfo } from '../model/projection';
+import {
+  groupFixturesByTeam,
+  projectAll,
+  STRATEGY_MODEL_V2,
+  type UpcomingFixtureInfo,
+} from '../model/projection';
 import type { RatingsModel } from '../model/ratings';
 import { buildShortlist, ShortlistInvariantError } from '../shortlist';
 import { makeLineupBaseline, makeSquadBaseline, makeTransferBaseline } from '../baseline';
@@ -1126,7 +1131,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       const strategy = await getProjectionStrategy(env.DB);
 
       let ratings: RatingsModel | undefined;
-      let fixturesByTeam: Map<number, UpcomingFixtureInfo> | undefined;
+      let fixturesByTeam: Map<number, UpcomingFixtureInfo[]> | undefined;
       let trailingStatsByElement: Map<number, GwStats[]> | undefined;
       // Issue #24: true only when `model-v2` is active AND D1 has ZERO
       // fixture rows for the WHOLE of `eventId` -- see
@@ -1139,20 +1144,16 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       if (strategy === STRATEGY_MODEL_V2) {
         ratings = await loadRatingsModel(env.DB);
 
-        // One fixture per team for THIS event only -- a team plays both
-        // home and away across a season, but within a single gameweek's
-        // fixture list it appears at most once (see
-        // `UpcomingFixtureInfo`'s own doc: double gameweeks are not
-        // modelled). A team absent here (blank gameweek) is intentionally
+        // Every fixture each team plays in THIS event. A team can appear
+        // more than once -- a double gameweek is real in this competition
+        // (GW5 of 2026/27 was a double for four clubs), so these APPEND
+        // rather than overwrite; `projectModelV2` scores each fixture
+        // separately. A team absent here (blank gameweek) is intentionally
         // left out of the map; `projectModelV2` already treats that as 0
         // xmins/xpts.
         const fixtures = await getFixturesForEvent(env.DB, eventId);
         blankFixturesForEvent = fixtures.length === 0;
-        fixturesByTeam = new Map<number, UpcomingFixtureInfo>();
-        for (const f of fixtures) {
-          fixturesByTeam.set(f.team_h, { opponent: f.team_a, isHome: true });
-          fixturesByTeam.set(f.team_a, { opponent: f.team_h, isHome: false });
-        }
+        fixturesByTeam = groupFixturesByTeam(fixtures);
 
         // Trailing window: mirror projection.ts's own default lookback (6
         // gameweeks -- see ProjectionOptions.trailingWindow's doc) so the
