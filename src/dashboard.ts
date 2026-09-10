@@ -496,6 +496,44 @@ ${nextHref ? `<p><a href="${nextHref}">Next page &rarr;</a></p>` : ''}
 `;
 }
 
+function parseKindParam(raw: string | null): readonly string[] | undefined {
+  return raw !== null && (DECISION_KINDS as readonly string[]).includes(raw) ? [raw] : undefined;
+}
+
+export async function handleDecisions(request: Request, env: Env): Promise<Response> {
+  if (!isAuthorized(request, env)) return notFound();
+
+  const url = new URL(request.url);
+  const token = url.searchParams.get('token');
+  const kinds = parseKindParam(url.searchParams.get('kind'));
+  const before = url.searchParams.get('before') ?? undefined;
+  // An unparseable limit degrades to "unspecified" (same as an unrecognized
+  // kind), not an error -- clamping to the 1..100 default range is
+  // getDecisionPage's job, not this parse's.
+  const parsedLimit = Number.parseInt(url.searchParams.get('limit') ?? '', 10);
+  const limit = Number.isFinite(parsedLimit) ? parsedLimit : undefined;
+
+  const html = await renderDecisionsPage(env, { token, kinds, before, limit });
+  return new Response(html, {
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
+}
+
+export async function handleDecisionDetail(
+  request: Request,
+  env: Env,
+  id: number,
+): Promise<Response> {
+  if (!isAuthorized(request, env)) return notFound();
+
+  const token = new URL(request.url).searchParams.get('token');
+  const html = await renderDecisionPage(env, id, token);
+  if (html === null) return notFound();
+  return new Response(html, {
+    headers: { 'content-type': 'text/html; charset=utf-8' },
+  });
+}
+
 /**
  * `GET /decisions/:id` permalink view. Returns `null` when `id` names no
  * `actions_log` row, or names one that isn't a decision kind (e.g.

@@ -81,6 +81,20 @@ describe('deployable bundle under workerd', () => {
     expect(await response.text()).toBe('Not found');
   });
 
+  it.each(['/decisions', '/decisions/1'])('gates %s before touching a binding', async (path) => {
+    const response = await env.WORKER_UNDER_TEST.fetch(`http://worker-under-test${path}`);
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Not found');
+  });
+
+  it('falls through cleanly on a non-numeric decision id, rather than throwing', async () => {
+    const response = await env.WORKER_UNDER_TEST.fetch('http://worker-under-test/decisions/abc');
+
+    expect(response.status).toBe(404);
+    expect(await response.text()).toBe('Not found');
+  });
+
   it('does not expose the login probe over GET', async () => {
     // The probe submits real credentials to the live site, so a token-gated
     // GET would let any prefetcher that saw the ?token= URL trigger a login

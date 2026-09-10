@@ -8,7 +8,7 @@
  * D1/API/Workflow-binding implementations into their injected interfaces.
  */
 
-import { handleDashboard } from './dashboard';
+import { handleDashboard, handleDecisionDetail, handleDecisions } from './dashboard';
 import { handleLoginProbe } from './loginProbe';
 import { notFound } from './adminAuth';
 import { runScheduledTick, type CronPorts, type MinimalEvent } from './cron';
@@ -134,6 +134,13 @@ export default {
     const url = new URL(request.url);
     if (request.method === 'GET' && url.pathname === '/') {
       return handleDashboard(request, env);
+    }
+    if (request.method === 'GET' && url.pathname === '/decisions') {
+      return handleDecisions(request, env);
+    }
+    if (request.method === 'GET') {
+      const match = /^\/decisions\/(\d+)$/.exec(url.pathname);
+      if (match) return handleDecisionDetail(request, env, Number(match[1]));
     }
     // POST-only on purpose: this submits real credentials to the live site,
     // so a GET would let any prefetcher that sees the ?token= URL trigger a
