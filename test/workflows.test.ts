@@ -732,11 +732,13 @@ describe('runDecisionCore: blank-fixtures guard (issue #24)', () => {
 
     expect(result.ok).toBe(true);
     expect(result.lineupDecision).toBeDefined();
-    // No abort row, and no alert -- the guard stayed out of the way.
+    // No abort row, and no BLANK-FIXTURES alert -- the guard stayed out of
+    // the way. (A separate real-change alert may still fire for the lineup
+    // this decides -- that's the team-change alert, not the guard.)
     expect(
       deps.actions.some((a) => (a as { kind: string }).kind === 'decide-commit-blank-fixtures'),
     ).toBe(false);
-    expect(deps.opsAlerts).toEqual([]);
+    expect(deps.opsAlerts.some((a) => a.summary.includes('no fixtures stored'))).toBe(false);
   });
 
   it('a partially-blank event -- some teams with no fixture, but NOT the whole event -- still decides normally', async () => {
@@ -781,7 +783,69 @@ describe('runDecisionCore: blank-fixtures guard (issue #24)', () => {
     expect(
       deps.actions.some((a) => (a as { kind: string }).kind === 'decide-commit-blank-fixtures'),
     ).toBe(false);
+    expect(deps.opsAlerts.some((a) => a.summary.includes('no fixtures stored'))).toBe(false);
+  });
+});
+
+describe('runDecisionCore: team-change ops alert', () => {
+  it('alerts once when squad creation actually posts', async () => {
+    const deps = makeDeps({ config: baseConfig({ dryRun: false }) });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result.ok).toBe(true);
+    expect(deps.createEntryCalls).toBe(1);
+    expect(deps.opsAlerts).toHaveLength(1);
+    const [alert] = deps.opsAlerts;
+    expect(alert!.summary).toMatch(/squad created/i);
+    expect(alert!.fields?.kind).toBe('squad-create');
+  });
+
+  it('never alerts on a dry run, even though the squad would otherwise be created', async () => {
+    const deps = makeDeps({ config: baseConfig({ dryRun: true }) });
+
+    await runDecisionCore('full', deps);
+
+    expect(deps.createEntryCalls).toBe(0);
     expect(deps.opsAlerts).toEqual([]);
+  });
+
+  it('alerts once, naming the captain, when a lineup-only recheck actually changes and posts', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 20,
+      cumulativeTransfers: 0,
+    };
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      blankFixturesForEvent: false,
+      config: baseConfig({ dryRun: false }),
+      // `squadPicks` has no captain designated -- decideLineup always
+      // assigns one (HAZARD #2), so the live state here is guaranteed to
+      // differ from whatever it decides, making this a real change.
+      reloadLivePrices: async () => ({ elements, myTeam: { picks: squadPicks, chips: [] } }),
+    });
+
+    const result = await runDecisionCore('lineup-only', deps);
+
+    expect(result.ok).toBe(true);
+    expect(result.posted).toBe(true);
+    expect(deps.myTeamPosts).toHaveLength(1);
+    expect(deps.opsAlerts).toHaveLength(1);
+    const [alert] = deps.opsAlerts;
+    expect(alert!.summary).toMatch(/lineup updated/i);
+    expect(alert!.summary).toMatch(/captain/i);
+    expect(alert!.fields?.kind).toBe('lineup-recheck');
   });
 });
 

@@ -171,6 +171,34 @@ function teamShortName(teams: readonly TeamRow[], teamId: number): string {
   return teams.find((t) => t.id === teamId)?.short_name ?? '?';
 }
 
+/**
+ * The one-line ops-alert summary for a REAL change to the live team -- a
+ * posted transfer, a changed-and-posted lineup, or a newly created squad.
+ * Every call site below fires this only once the change has actually
+ * happened (see each site's own comment), never on a no-op tick where the
+ * agent considered and declined a transfer, or the channel becomes noise
+ * nobody reads.
+ */
+function describeTeamChange(
+  eventId: number,
+  elements: readonly Element[],
+  opts: { transfer?: TransferMove; picks?: readonly Pick[]; note: string },
+): string {
+  const nameById = new Map(elements.map((e) => [e.id, e.web_name] as const));
+  const nameFor = (id: number): string => nameById.get(id) ?? `#${id}`;
+  const parts: string[] = [opts.note];
+  if (opts.transfer) {
+    parts.push(
+      `OUT ${nameFor(opts.transfer.element_out)} → IN ${nameFor(opts.transfer.element_in)}`,
+    );
+  }
+  if (opts.picks) {
+    const captain = opts.picks.find((p) => p.is_captain);
+    if (captain) parts.push(`captain: ${nameFor(captain.element)}`);
+  }
+  return `Fantasy agent — GW${eventId}: ${parts.join(', ')}.`;
+}
+
 /** Builds one `ShortlistEntry` per element in `elementIds`, in the order
  * given. Elements or projections missing for an id are skipped (never
  * invented) -- callers that need every id resolved should check the output
@@ -608,6 +636,11 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
   });
   await deps.saveSquadState(finalPicks, 0, 0);
 
+  await deps.sendOpsAlert(
+    describeTeamChange(deps.eventId, deps.elements, { picks: finalPicks, note: 'squad created' }),
+    { eventId: deps.eventId, kind: 'squad-create', entry: created.entry },
+  );
+
   return { ok: true, posted: true, reason: 'entry created', squadDecision, lineupDecision };
 }
 
@@ -765,6 +798,11 @@ async function runTransferAndLineup(
   }
 
   let posted = false;
+  // Tracked separately from `posted` (which only says "something was
+  // written") so the ops alert below can name WHICH thing changed --
+  // `postedTransferMove` survives even though `chosenMove` itself gets
+  // nulled out on an affordability rejection.
+  let postedTransferMove: TransferMove | null = null;
 
   if (chosenMove) {
     const freshElementById = new Map(fresh.elements.map((e) => [e.id, e] as const));
@@ -802,11 +840,15 @@ async function runTransferAndLineup(
         ok: true,
       });
       posted = true;
+      postedTransferMove = refreshedMove;
     }
   }
 
   // Idempotency: skip the lineup POST if live state already matches intent.
-  if (!picksEqual(fresh.myTeam.picks, finalPicks)) {
+  // Also gates the ops alert below -- an unchanged lineup that gets
+  // re-posted for some other reason would otherwise page for nothing.
+  const lineupChanged = !picksEqual(fresh.myTeam.picks, finalPicks);
+  if (lineupChanged) {
     const resp = await deps.postMyTeam(finalPicks);
     await deps.logAction({
       ts: nowIso(),
@@ -825,6 +867,25 @@ async function runTransferAndLineup(
     squad.bank - (chosenMove ? chosenMove.purchase_price - chosenMove.selling_price : 0),
     squad.cumulativeTransfers + (chosenMove ? 1 : 0),
   );
+
+  // Ops alert: only for a REAL change (a transfer that actually posted, or a
+  // lineup that actually differs from live) -- never for a tick that merely
+  // considered and declined both, or every no-op hourly tick would page.
+  if (postedTransferMove || lineupChanged) {
+    await deps.sendOpsAlert(
+      describeTeamChange(deps.eventId, deps.elements, {
+        transfer: postedTransferMove ?? undefined,
+        picks: lineupChanged ? finalPicks : undefined,
+        note: postedTransferMove ? 'transfer made' : 'lineup updated',
+      }),
+      {
+        eventId: deps.eventId,
+        kind: 'transfer-lineup',
+        transfer: postedTransferMove !== null,
+        lineupChanged,
+      },
+    );
+  }
 
   return {
     ok: true,
@@ -895,6 +956,17 @@ async function runLineupOnly(
     ok: true,
   });
   await deps.saveSquadState(finalPicks, squad.bank, squad.cumulativeTransfers);
+
+  // Reached only when the pre-deadline recheck actually changed something
+  // (the `picksEqual` return above already covers the no-op case), so this
+  // is always a real, alert-worthy change.
+  await deps.sendOpsAlert(
+    describeTeamChange(deps.eventId, deps.elements, {
+      picks: finalPicks,
+      note: 'lineup updated (pre-deadline recheck)',
+    }),
+    { eventId: deps.eventId, kind: 'lineup-recheck' },
+  );
 
   return { ok: true, posted: true, reason: 'posted lineup recheck', lineupDecision };
 }
