@@ -20,9 +20,9 @@ const REGRET_CAVEAT =
   '`differentiation` is reported beside it. For transfer decisions, `regret_points`/' +
   '`regret_ratio` are marginal point-gain deltas over the planning horizon (bounded by ' +
   'candidate `gain` magnitudes, typically small), not the absolute per-gameweek xPts ' +
-  "totals that squad/lineup regret represent — a materially different scale, so the " +
+  'totals that squad/lineup regret represent — a materially different scale, so the ' +
   "combined report's per-metric-name mean should not be read as like-for-like across " +
-  'decision kinds. Transfer `differentiation` is also coarser than squad/lineup\'s: since ' +
+  "decision kinds. Transfer `differentiation` is also coarser than squad/lineup's: since " +
   'the reference and answer sets are each size 0 or 2, only values `{0, 0.667, 1.0}` are ' +
   'reachable, and it alone can\'t distinguish "declined" from "chose an unrelated move" — ' +
   '`regret_points` is what separates those, reinforcing why the two metrics are always ' +
