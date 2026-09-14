@@ -220,6 +220,18 @@ describe.skipIf(cassetteKeys.length === 0)('eval replay lane', () => {
       t.scores.some((s) => s.name === 'provider_error_rate' && s.value > 0),
     );
     expect(providerErrors.map((t) => t.caseId)).toEqual([]);
+
+    // The `differentiation` fix (issue #49): against real cassette data, the
+    // transfer task's reference is no longer the empty fallback move, so
+    // differentiation must stop being NaN on every trial.
+    const transferSummary = summary.tasks.find((t) => t.taskId === 'fantasy/transfer');
+    expect(transferSummary).toBeDefined();
+    const transferDifferentiation = transferSummary?.metrics.find(
+      (m) => m.name === 'differentiation',
+    );
+    expect(transferDifferentiation).toBeDefined();
+    expect(transferDifferentiation!.nan).toBeLessThan(transferDifferentiation!.n);
+    expect(Number.isFinite(transferDifferentiation!.mean)).toBe(true);
   });
 });
 

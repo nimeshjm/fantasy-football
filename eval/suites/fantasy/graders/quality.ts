@@ -17,7 +17,16 @@ import type {
 const REGRET_CAVEAT =
   "Regret measures agreement with this repo's own projection model, not football skill " +
   '— a model that copies the optimizer scores zero regret and adds nothing, which is why ' +
-  '`differentiation` is reported beside it.';
+  '`differentiation` is reported beside it. For transfer decisions, `regret_points`/' +
+  '`regret_ratio` are marginal point-gain deltas over the planning horizon (bounded by ' +
+  'candidate `gain` magnitudes, typically small), not the absolute per-gameweek xPts ' +
+  "totals that squad/lineup regret represent — a materially different scale, so the " +
+  "combined report's per-metric-name mean should not be read as like-for-like across " +
+  'decision kinds. Transfer `differentiation` is also coarser than squad/lineup\'s: since ' +
+  'the reference and answer sets are each size 0 or 2, only values `{0, 0.667, 1.0}` are ' +
+  'reachable, and it alone can\'t distinguish "declined" from "chose an unrelated move" — ' +
+  '`regret_points` is what separates those, reinforcing why the two metrics are always ' +
+  'reported together.';
 
 const REALIZED_CAVEAT =
   'Three gameweeks is not enough to separate models, and the input state carries two ' +
@@ -99,11 +108,11 @@ function differentiation(c: EvalCase, o: TaskOutcome): number {
 
   if (c.input.kind === 'transfer') {
     const reference = transferElementIds(o.reference.transfers);
-    // The transfer reference is `fallbackMove`, which is empty ("make no
-    // transfer"). Distance from the empty set is 1 for any move the model
-    // makes, so the figure carries no information -- the first live run
-    // duly reported a flat 1.0 across every transfer case. NaN is the
-    // honest answer until there is a non-trivial reference to compare to.
+    // The transfer reference is the best pre-filtered candidate by projected
+    // gain (or empty if none/all non-positive -- see `transferTask.run()` in
+    // `eval/suites/fantasy/tasks.ts`). An empty reference here means no
+    // positive-gain transfer was available at all this gameweek; NaN remains
+    // the honest answer in that genuine edge case.
     if (reference.size === 0) return NaN;
     return jaccardDistance(model, reference);
   }
