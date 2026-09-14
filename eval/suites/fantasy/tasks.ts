@@ -174,6 +174,11 @@ export const transferTask: EvalTask<TransferCaseInput> = {
       baseline,
       audit,
     });
+    const topCandidate =
+      candidates.length > 0
+        ? candidates.reduce((best, c) => (c.gain > best.gain ? c : best))
+        : undefined;
+    const referenceTransfers = topCandidate && topCandidate.gain > 0 ? [topCandidate.move] : [];
     return {
       kind: decision.kind,
       source: decision.source,
@@ -182,7 +187,10 @@ export const transferTask: EvalTask<TransferCaseInput> = {
       overrideReason: decision.overrideReason,
       attempts: audit.attempts(),
       gate: audit.gate(),
-      reference: { transfers: input.fallbackMove },
+      reference: {
+        transfers: referenceTransfers,
+        score: topCandidate ? Math.max(0, topCandidate.gain) : 0,
+      },
       requestedModel: ctx.model,
     };
   },

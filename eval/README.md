@@ -83,6 +83,15 @@ formality.
   skill.** A model that reproduces the optimizer's output exactly scores zero
   regret while adding no value — which is why it is never reported without the
   differentiation stat beside it.
+- **Transfer regret is on a different scale from squad/lineup regret.** It's a
+  marginal point-gain delta over the planning horizon, bounded by candidate
+  `gain` magnitudes (typically small) — not the absolute per-gameweek xPts
+  totals squad/lineup regret represent. Don't read the combined report's
+  per-metric-name mean as like-for-like across decision kinds. Transfer
+  `differentiation` is also coarser: reference and answer sets are each size 0
+  or 2, so only `{0, 0.667, 1.0}` are reachable, and it alone can't distinguish
+  "declined" from "chose an unrelated move" — that's what `regret_points` is
+  for, which is why the two are always reported together.
 - **Realized points is descriptive only**, never a pass/fail threshold. It
   covers three gameweeks, which is no statistical power to distinguish models,
   and the input state used to reconstruct "as of just before gameweek g" carries

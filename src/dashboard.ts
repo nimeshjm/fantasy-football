@@ -136,10 +136,10 @@ function actionRow(a: ActionLogRow): string {
   );
 }
 
-/** `llm 12.34 vs det 15.00` -- the two scores the gate compared, or `-`
- * when the gate never ran (the attempt failed before it) or had no score to
- * compare (the transfer gate is a legality check). A verdict is only
- * judgeable next to the margin behind it. */
+/** `llm 12.34 vs det 15.00` -- the two scores the gate compared, or `-` when
+ * the gate never ran (the attempt failed before it). Transfer rows carry real
+ * `llmScore`/`deterministicScore` values same as squad/lineup. A verdict is
+ * only judgeable next to the margin behind it. */
 function gateScores(c: AiCallRow): string {
   if (c.llmScore === null && c.deterministicScore === null) return '-';
   const llm = c.llmScore === null ? '?' : c.llmScore.toFixed(2);

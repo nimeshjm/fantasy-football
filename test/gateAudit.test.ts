@@ -18,13 +18,22 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { Position, RULES, type Element, type Pick, type Projection } from '../src/types';
+import {
+  Position,
+  RULES,
+  type Element,
+  type Pick,
+  type Projection,
+  type TransferMove,
+} from '../src/types';
 import {
   decideLineup,
   decideSquad,
+  decideTransfer,
   type DeterministicBaseline,
   type LlmAuditSink,
   type NeuronBudget,
+  type TransferCandidateInput,
 } from '../src/ai/decide';
 import { StubProvider } from '../src/ai/provider';
 import type { ShortlistEntry } from '../src/ai/prompts';
@@ -608,6 +617,210 @@ describe('lineup gate with real (non-fake) baseline scoring -- issue #24', () =>
     expect(decision.source).toBe('llm');
     expect(decision.overrideReason).toBeUndefined();
 
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(true);
+    expect(gate.llmScore).toBe(0);
+    expect(gate.deterministicScore).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transfer gate audit trail -- issue #49
+// ---------------------------------------------------------------------------
+
+/**
+ * `decideTransfer` recorded a gate verdict but never a score, because
+ * transfers were originally scoped as a pure legality check -- leaving
+ * `regret_points`/`regret_ratio` permanently NaN for transfer decisions in
+ * the eval framework. These tests exercise the fix: `llmScore`/
+ * `deterministicScore` riding alongside the (unchanged) legality gate,
+ * sourced from each candidate's pre-computed `gain`.
+ */
+function makeShortlistEntry(): ShortlistEntry {
+  return { element: makeElement(), clubShortName: '?', xpts: 5 };
+}
+
+function makeCandidate(
+  gain: number,
+  elementIn: ShortlistEntry,
+  elementOut: ShortlistEntry,
+): TransferCandidateInput {
+  const move: TransferMove = {
+    element_in: elementIn.element.id,
+    element_out: elementOut.element.id,
+    purchase_price: elementIn.element.now_cost,
+    selling_price: elementOut.element.now_cost,
+  };
+  return { elementIn, elementOut, move, gain };
+}
+
+function transferAnswer(elementIn: number, elementOut: number, reason: string) {
+  return JSON.stringify({ element_in: elementIn, element_out: elementOut, reason });
+}
+
+const noopBaseline: DeterministicBaseline = {
+  scoreSquad: () => 0,
+  scoreLineup: () => 0,
+  optimalSquad: () => [],
+  optimalLineup: () => [],
+  fallbackSquad: () => [],
+  fallbackLineup: () => [],
+  fallbackTransfer: () => [],
+};
+
+describe('transfer gate audit trail', () => {
+  it('picking the single best candidate accepts with llmScore === deterministicScore === its gain (zero regret)', async () => {
+    const elementIn = makeShortlistEntry();
+    const elementOut = makeShortlistEntry();
+    const candidate = makeCandidate(12, elementIn, elementOut);
+    const provider = new StubProvider({
+      ok: true,
+      text: transferAnswer(elementIn.element.id, elementOut.element.id, 'take the gain'),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideTransfer({
+      audit,
+      squad: [elementIn, elementOut],
+      candidates: [candidate],
+      bankTenths: 0,
+      provider,
+      budget: unusedBudget,
+      baseline: noopBaseline,
+    });
+
+    expect(decision.source).toBe('llm');
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(true);
+    expect(gate.llmScore).toBe(12);
+    expect(gate.deterministicScore).toBe(12);
+  });
+
+  it('picking the lower-gain of two candidates accepts with llmScore < deterministicScore (the best offered gain)', async () => {
+    const inA = makeShortlistEntry();
+    const outA = makeShortlistEntry();
+    const inB = makeShortlistEntry();
+    const outB = makeShortlistEntry();
+    const better = makeCandidate(20, inA, outA);
+    const worse = makeCandidate(5, inB, outB);
+    const provider = new StubProvider({
+      ok: true,
+      text: transferAnswer(inB.element.id, outB.element.id, 'took the worse one'),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideTransfer({
+      audit,
+      squad: [inA, outA, inB, outB],
+      candidates: [better, worse],
+      bankTenths: 0,
+      provider,
+      budget: unusedBudget,
+      baseline: noopBaseline,
+    });
+
+    expect(decision.source).toBe('llm');
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(true);
+    expect(gate.llmScore).toBe(5);
+    expect(gate.deterministicScore).toBe(20);
+    expect(gate.llmScore!).toBeLessThan(gate.deterministicScore!);
+  });
+
+  it('declining while a positive-gain candidate is on offer accepts with llmScore 0 and deterministicScore the best candidate gain', async () => {
+    const elementIn = makeShortlistEntry();
+    const elementOut = makeShortlistEntry();
+    const candidate = makeCandidate(9, elementIn, elementOut);
+    const provider = new StubProvider({
+      ok: true,
+      text: transferAnswer(0, 0, 'not worth it'),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideTransfer({
+      audit,
+      squad: [elementIn, elementOut],
+      candidates: [candidate],
+      bankTenths: 0,
+      provider,
+      budget: unusedBudget,
+      baseline: noopBaseline,
+    });
+
+    expect(decision.source).toBe('llm');
+    expect(decision.transfers).toEqual([]);
+    expect(audit.gates).toHaveLength(1);
+    const gate = audit.gates[0]!;
+    expect(gate.accept).toBe(true);
+    expect(gate.source).toBe('llm');
+    expect(gate.llmScore).toBe(0);
+    expect(gate.deterministicScore).toBe(9);
+    expect(gate.deterministicScore!).toBeGreaterThan(0);
+  });
+
+  it('proposing a move off the candidate list rejects with llmScore undefined and deterministicScore still defined', async () => {
+    const elementIn = makeShortlistEntry();
+    const elementOut = makeShortlistEntry();
+    const candidate = makeCandidate(7, elementIn, elementOut);
+    const offMenuIn = makeShortlistEntry();
+    const offMenuOut = makeShortlistEntry();
+    const provider = new StubProvider({
+      ok: true,
+      text: transferAnswer(offMenuIn.element.id, offMenuOut.element.id, 'invented move'),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideTransfer({
+      audit,
+      squad: [elementIn, elementOut],
+      candidates: [candidate],
+      bankTenths: 0,
+      provider,
+      budget: unusedBudget,
+      baseline: noopBaseline,
+    });
+
+    expect(decision.source).toBe('deterministic-fallback');
+    // MAX_RETRIES = 2, and the stubbed provider answers identically on every
+    // attempt, so all 3 attempts (0, 1, 2) reject and each one's verdict
+    // must land in the audit trail -- not just the first or the last.
+    expect(audit.gates).toHaveLength(3);
+    audit.gates.forEach((gate, i) => {
+      expect(gate.attempt).toBe(i);
+      expect(gate.accept).toBe(false);
+      expect(gate.source).toBe('deterministic-gate');
+      expect(gate.llmScore).toBeUndefined();
+      expect(gate.deterministicScore).toBe(7);
+    });
+  });
+
+  it('all offered candidates non-positive gain, model declines: deterministicScore floors at 0 (zero regret)', async () => {
+    const inA = makeShortlistEntry();
+    const outA = makeShortlistEntry();
+    const inB = makeShortlistEntry();
+    const outB = makeShortlistEntry();
+    const zeroGain = makeCandidate(0, inA, outA);
+    const negativeGain = makeCandidate(-3, inB, outB);
+    const provider = new StubProvider({
+      ok: true,
+      text: transferAnswer(0, 0, 'nothing worth it'),
+    });
+    const audit = makeCapturingAudit();
+
+    const decision = await decideTransfer({
+      audit,
+      squad: [inA, outA, inB, outB],
+      candidates: [zeroGain, negativeGain],
+      bankTenths: 0,
+      provider,
+      budget: unusedBudget,
+      baseline: noopBaseline,
+    });
+
+    expect(decision.source).toBe('llm');
     expect(audit.gates).toHaveLength(1);
     const gate = audit.gates[0]!;
     expect(gate.accept).toBe(true);

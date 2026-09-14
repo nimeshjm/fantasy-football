@@ -144,8 +144,12 @@ export interface LlmAuditSink {
     source: DecisionSource;
     overrideReason?: string;
     /** Deterministic-model score of the LLM's own answer, and of the
-     * deterministic optimum. Both undefined for the transfer gate, which is
-     * a legality check with no score on either side. */
+     * deterministic optimum. For squad/lineup both are undefined only when
+     * the gate never ran. For the transfer gate (a legality check, not a
+     * score comparison) these instead carry an additive candidate-`gain`
+     * annotation for eval/audit purposes -- see the transfer gate site in
+     * `decideTransfer` -- with `llmScore` undefined when the model proposed
+     * a move off the offered candidate list. */
     llmScore?: number;
     deterministicScore?: number;
   }): void | Promise<void>;
@@ -781,6 +785,8 @@ export async function decideTransfer(input: DecideTransferInput): Promise<Decisi
     return fallback('No candidate transfers were offered.');
   }
 
+  const bestGain = candidates.reduce((max, c) => Math.max(max, c.gain), 0);
+
   const promptCandidates: TransferCandidateEntry[] = candidates.map((c) => ({
     elementIn: c.elementIn,
     elementOut: c.elementOut,
@@ -817,7 +823,16 @@ export async function decideTransfer(input: DecideTransferInput): Promise<Decisi
     }
 
     if (parsed.value.element_in === 0 && parsed.value.element_out === 0) {
-      // Electing not to transfer is always legal - no gate needed.
+      const gate = gateDecision('transfer', { transferValid: true }, {}, {});
+      await noteGate(audit, {
+        decisionKind: 'transfer',
+        attempt,
+        accept: gate.accept,
+        source: gate.source,
+        overrideReason: gate.overrideReason,
+        llmScore: 0,
+        deterministicScore: bestGain,
+      });
       return { kind: 'transfer', source: 'llm', transfers: [], reasoning: parsed.value.reason };
     }
 
@@ -844,16 +859,21 @@ export async function decideTransfer(input: DecideTransferInput): Promise<Decisi
     // appears as a transfer decision's own source. So every attempt's
     // verdict is recorded here, inside the loop, rather than once after it
     // -- otherwise only the LAST attempt's rejection would ever reach the
-    // audit trail, silently dropping every earlier one. `llmScore`/
-    // `deterministicScore` are omitted: the transfer gate is a legality
-    // check (is this move an offered candidate with positive gain?), not a
-    // score comparison, so neither side has a score to record.
+    // audit trail, silently dropping every earlier one. The legality verdict
+    // (`gate.accept`/`gate.source`) is still driven purely by `transferValid`
+    // and is completely unchanged by the scores below: `llmScore`/
+    // `deterministicScore` are a separate, additive annotation -- each
+    // candidate's pre-computed `gain` -- that rides alongside the legality
+    // gate for eval/audit purposes only, not part of the accept/reject
+    // decision itself.
     await noteGate(audit, {
       decisionKind: 'transfer',
       attempt,
       accept: gate.accept,
       source: gate.source,
       overrideReason: gate.overrideReason,
+      llmScore: match?.gain,
+      deterministicScore: bestGain,
     });
     if (gate.accept) {
       return { kind: 'transfer', source: 'llm', transfers: [move], reasoning: parsed.value.reason };
