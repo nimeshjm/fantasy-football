@@ -182,7 +182,16 @@ function teamShortName(teams: readonly TeamRow[], teamId: number): string {
 function describeTeamChange(
   eventId: number,
   elements: readonly Element[],
-  opts: { transfer?: TransferMove; picks?: readonly Pick[]; note: string },
+  opts: {
+    transfer?: TransferMove;
+    picks?: readonly Pick[];
+    note: string;
+    /** The `reasoning` of whichever Decision(s) drove this change (e.g.
+     * squad, transfer, lineup) -- included in full so the message stands
+     * alone the way `summarize` in src/alert.ts requires. `undefined`
+     * entries (a skipped decision) are dropped rather than printed. */
+    reasoning?: readonly (string | undefined)[];
+  },
 ): string {
   const nameById = new Map(elements.map((e) => [e.id, e.web_name] as const));
   const nameFor = (id: number): string => nameById.get(id) ?? `#${id}`;
@@ -196,7 +205,9 @@ function describeTeamChange(
     const captain = opts.picks.find((p) => p.is_captain);
     if (captain) parts.push(`captain: ${nameFor(captain.element)}`);
   }
-  return `Fantasy agent — GW${eventId}: ${parts.join(', ')}.`;
+  const headline = `Fantasy agent — GW${eventId}: ${parts.join(', ')}.`;
+  const reasoning = (opts.reasoning ?? []).filter((r): r is string => !!r);
+  return reasoning.length ? `${headline}\nReasoning: ${reasoning.join(' | ')}` : headline;
 }
 
 /** Builds one `ShortlistEntry` per element in `elementIds`, in the order
@@ -637,7 +648,11 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
   await deps.saveSquadState(finalPicks, 0, 0);
 
   await deps.sendOpsAlert(
-    describeTeamChange(deps.eventId, deps.elements, { picks: finalPicks, note: 'squad created' }),
+    describeTeamChange(deps.eventId, deps.elements, {
+      picks: finalPicks,
+      note: 'squad created',
+      reasoning: [squadDecision.reasoning, lineupDecision.reasoning],
+    }),
     { eventId: deps.eventId, kind: 'squad-create', entry: created.entry },
   );
 
@@ -877,6 +892,7 @@ async function runTransferAndLineup(
         transfer: postedTransferMove ?? undefined,
         picks: lineupChanged ? finalPicks : undefined,
         note: postedTransferMove ? 'transfer made' : 'lineup updated',
+        reasoning: [transferDecision?.reasoning, lineupDecision.reasoning],
       }),
       {
         eventId: deps.eventId,
@@ -964,6 +980,7 @@ async function runLineupOnly(
     describeTeamChange(deps.eventId, deps.elements, {
       picks: finalPicks,
       note: 'lineup updated (pre-deadline recheck)',
+      reasoning: [lineupDecision.reasoning],
     }),
     { eventId: deps.eventId, kind: 'lineup-recheck' },
   );
