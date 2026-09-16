@@ -38,10 +38,10 @@ npx wrangler deploy --dry-run   # validates wrangler.jsonc without deploying
 
 ## First-time deploy
 
-`wrangler.jsonc` ships with a placeholder `database_id` for the `fantasy`
-D1 database. Before `deploy.yml` can run successfully, create the real
-database (`npx wrangler d1 create fantasy`) and replace
-`REPLACE_WITH_D1_ID` with the id it prints.
+`wrangler.jsonc`'s `database_id` already points at this repo's live `fantasy`
+D1 database. Forking this to run your own instance: create your own database
+(`npx wrangler d1 create fantasy`) and replace `database_id` with the id it
+prints before `deploy.yml` can run successfully against it.
 
 ## Secrets
 
@@ -56,6 +56,7 @@ npx wrangler secret put FANTASY_PASSWORD        # password provider only
 npx wrangler secret put FANTASY_SESSION_COOKIE  # manual provider (current)
 npx wrangler secret put DASHBOARD_TOKEN         # gates GET / and the admin routes
 npx wrangler secret put ALERT_WEBHOOK_URL       # optional; must be https
+npx wrangler secret put API_FOOTBALL_KEY        # optional; enables the UEFA rotation-risk signal (issue #51)
 ```
 
 `ALERT_WEBHOOK_URL` is where a dead-session alert is POSTed. Leaving it
