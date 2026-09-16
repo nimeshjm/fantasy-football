@@ -47,6 +47,16 @@
  * commit` reads them back with `getProjectionsForEvent` rather than having
  * them threaded through the step boundary -- see the comments at both ends
  * of that hand-off below for why.
+ *
+ * A fifth step, `refresh-uefa-appearances` (issue #51), sits between
+ * `load-squad-and-config` and `read-neuron-spend`: network I/O against
+ * api-football.com for the UEFA rotation-risk signal, not CPU, so it
+ * doesn't compete with the budget concern above -- it's its own step for
+ * the same "one concern per step, isolate failure" reasoning. It writes to
+ * D1 directly and returns only a summary; `decide-and-commit` reads the
+ * result back via `DecisionCoreDeps.getEuropeNotes` (`buildEuropeNotes`,
+ * src/uefaRotation.ts), the same "persist small, re-read via the deps
+ * callback" shape `project`/`getProjectionsForEvent` already establish.
  */
 
 import { sendOpsAlert } from '../alert';
@@ -108,6 +118,7 @@ import {
 import type { RatingsModel } from '../model/ratings';
 import { buildShortlist, ShortlistInvariantError } from '../shortlist';
 import { makeLineupBaseline, makeSquadBaseline, makeTransferBaseline } from '../baseline';
+import { buildEuropeNotes, refreshUefaAppearances } from '../uefaRotation';
 import { createSessionStore } from '../sessionStore';
 import {
   parseConfig,
@@ -213,12 +224,20 @@ function describeTeamChange(
 /** Builds one `ShortlistEntry` per element in `elementIds`, in the order
  * given. Elements or projections missing for an id are skipped (never
  * invented) -- callers that need every id resolved should check the output
- * length. */
+ * length.
+ *
+ * `europeNotes` (issue #51) is optional and keyed by `element.id`: passed by
+ * callers building entries for the currently-owned squad (never the wider
+ * candidate/transfer-candidate pool -- see the call sites in
+ * `runSquadCreation`/`runTransferAndLineup`/`runLineupOnly` for which is
+ * which), it sets `ShortlistEntry.europeNote` for any id it covers and
+ * leaves it `undefined` otherwise, same convention as a missing `news`. */
 export function buildShortlistEntries(
   elementIds: readonly number[],
   elements: readonly Element[],
   projections: readonly Projection[],
   teams: readonly TeamRow[],
+  europeNotes?: ReadonlyMap<number, string>,
 ): ShortlistEntry[] {
   const elementById = new Map(elements.map((e) => [e.id, e] as const));
   const xptsById = new Map(projections.map((p) => [p.element_id, p.xpts] as const));
@@ -230,6 +249,7 @@ export function buildShortlistEntries(
       element,
       clubShortName: teamShortName(teams, element.team),
       xpts: xptsById.get(id) ?? 0,
+      europeNote: europeNotes?.get(id),
     });
   }
   return entries;
@@ -420,6 +440,17 @@ export interface DecisionCoreDeps {
    */
   fetchRegions?: () => Promise<Region[] | null>;
 
+  /**
+   * Best-effort read of this squad's stored UEFA rotation-risk notes (issue
+   * #51), keyed by `elementId` -- reads back whatever the `refresh-uefa-
+   * appearances` step (ahead of this one in `DecideCommitWorkflow.run`)
+   * already stored. Never throws: no key provisioned, no data yet, or a D1
+   * failure all collapse to an empty map, same contract as every other
+   * UEFA rotation port (`src/uefaRotation.ts`'s `buildEuropeNotes`, which is
+   * all the real implementation does).
+   */
+  getEuropeNotes: (elementIds: readonly number[]) => Promise<Map<number, string>>;
+
   logAction: (input: ActionLogInput) => Promise<void>;
   /** Returns the inserted `ai_calls` row id -- `updateAiCallGate` stamps the
    * gate's verdict onto that same row once the gate has run. */
@@ -510,11 +541,14 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
   // placeholder positions before anything is committed.
   const ownedPicks = squadDecision.picks ?? deterministicSquad.picks;
   const lineupBaseline = makeLineupBaseline(deps.elements, deps.projections, ownedPicks);
+  const ownedElementIds = ownedPicks.map((p) => p.element);
+  const europeNotes = await deps.getEuropeNotes(ownedElementIds);
   const ownedEntries = buildShortlistEntries(
-    ownedPicks.map((p) => p.element),
+    ownedElementIds,
     deps.elements,
     deps.projections,
     deps.teams,
+    europeNotes,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -670,6 +704,13 @@ async function runTransferAndLineup(
   let transferDecision: Decision | undefined;
   let chosenMove: TransferMove | null = null;
 
+  // Issue #51: fetched once up front and reused by `squadEntries` below --
+  // `squad.picks` is the currently-owned 15, the only shortlist entries in
+  // this function that should carry a `europeNote` (see
+  // `buildShortlistEntries`'s doc comment for why the transfer candidates
+  // below deliberately don't get one).
+  const squadEuropeNotes = await deps.getEuropeNotes(squad.picks.map((p) => p.element));
+
   const transfersAllowed =
     deps.config.maxTransfersPerGw >= 1 && squad.cumulativeTransfers < RULES.transfersCap;
 
@@ -712,6 +753,7 @@ async function runTransferAndLineup(
       deps.elements,
       deps.projections,
       deps.teams,
+      squadEuropeNotes,
     );
     const candidateInputs = candidates
       .map((c) => {
@@ -755,11 +797,18 @@ async function runTransferAndLineup(
   // HAZARD #2: decideLineup MUST run and supersede any transfer's
   // untouched positions before anything is committed.
   const lineupBaseline = makeLineupBaseline(deps.elements, deps.projections, newOwnedPicks);
+  // Re-fetched only when a transfer actually changed the owned 15 --
+  // `squadEuropeNotes` above already covers the no-transfer case, and a
+  // fresh incoming element wasn't part of that squad-scoped read.
+  const ownedEuropeNotes = chosenMove
+    ? await deps.getEuropeNotes(newOwnedPicks.map((p) => p.element))
+    : squadEuropeNotes;
   const ownedEntries = buildShortlistEntries(
     newOwnedPicks.map((p) => p.element),
     deps.elements,
     deps.projections,
     deps.teams,
+    ownedEuropeNotes,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -921,11 +970,14 @@ async function runLineupOnly(
   squad: ExistingSquad,
 ): Promise<DecisionCoreResult> {
   const lineupBaseline = makeLineupBaseline(deps.elements, deps.projections, squad.picks);
+  const ownedElementIds = squad.picks.map((p) => p.element);
+  const europeNotes = await deps.getEuropeNotes(ownedElementIds);
   const ownedEntries = buildShortlistEntries(
-    squad.picks.map((p) => p.element),
+    ownedElementIds,
     deps.elements,
     deps.projections,
     deps.teams,
+    europeNotes,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -1163,6 +1215,58 @@ async function loadExistingSquad(
   }
 }
 
+/** Recent-fixtures lookback window for `refreshUefaAppearancesStep`'s call
+ * into `refreshUefaAppearances` (issue #51). A fixed 14 days -- roughly two
+ * gameweek cycles -- rather than threading `cron.ts`'s actual last-deadline
+ * schedule through this workflow: `getRecentFinishedFixturesForTeam` and
+ * `hasUefaAppearances`'s per-fixture gating already make re-scanning a wider
+ * window cost nothing beyond a slightly larger `from`/`to` range on the
+ * API-Football call, so there's no real benefit to threading the exact
+ * deadline through just to narrow it. */
+const UEFA_LOOKBACK_DAYS = 14;
+
+/**
+ * Body of the `refresh-uefa-appearances` step (issue #51), exported for
+ * direct unit testing (test/workflows.test.ts) without needing a full D1
+ * fake for the workflow's other steps -- mirrors how `runDecisionCore`
+ * itself is tested apart from `DecideCommitWorkflow.run`'s `step.do`
+ * machinery.
+ *
+ * Gated on `existingSquad`: squad-creation has no "current owned squad" to
+ * derive clubs from (same reasoning `DecisionCoreDeps.fetchRegions`'s doc
+ * comment gives for why squad creation doesn't share that problem), so this
+ * returns zero counts immediately -- no D1 read, no network call -- on that
+ * path. Never throws: any failure (a bad D1 read for elements/teams, or
+ * anything unexpected) degrades to "no fresh europe: signal this cycle",
+ * same contract as `refreshUefaAppearances` itself.
+ */
+export async function refreshUefaAppearancesStep(
+  env: Env,
+  existingSquad: ExistingSquad | null,
+): Promise<{ fetched: number; matched: number; unmatched: string[] }> {
+  const zero = { fetched: 0, matched: 0, unmatched: [] as string[] };
+  if (!existingSquad) return zero;
+
+  try {
+    const [elements, teams] = await Promise.all([getAllElements(env.DB), getTeams(env.DB)]);
+    const elementById = new Map(elements.map((e) => [e.id, e] as const));
+    const ownedElements = existingSquad.picks
+      .map((p) => elementById.get(p.element))
+      .filter((e): e is NonNullable<typeof e> => e !== undefined);
+    const sinceIso = new Date(Date.now() - UEFA_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+    return await refreshUefaAppearances({
+      db: env.DB,
+      apiKey: env.API_FOOTBALL_KEY,
+      ownedElements,
+      teams,
+      sinceIso,
+    });
+  } catch {
+    return zero;
+  }
+}
+
 export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitParams> {
   override async run(
     workflowEvent: Readonly<WorkflowEvent<DecideCommitParams>>,
@@ -1195,6 +1299,18 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         existingSquad,
       };
     });
+
+    // Issue #51: network I/O against api-football.com, not CPU, so this
+    // doesn't compete with the CPU-budget concern the module doc gives for
+    // `load-squad-and-config`/`project` -- it's still its own step for the
+    // same "one concern per step, isolate failure" reasoning already used
+    // throughout this workflow. `refreshUefaAppearancesStep` never throws
+    // (best-effort, same contract as `fetchRegions`), so a failure here
+    // degrades to "no fresh europe: signal this cycle" rather than ever
+    // blocking `decide-and-commit` below.
+    await step.do('refresh-uefa-appearances', () =>
+      refreshUefaAppearancesStep(env, loaded.existingSquad),
+    );
 
     const spentSoFar = await step.do('read-neuron-spend', () =>
       getNeuronsSpentToday(env.DB, new Date().toISOString().slice(0, 10)),
@@ -1381,6 +1497,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
             return null;
           }
         },
+        getEuropeNotes: (elementIds) => buildEuropeNotes(env.DB, elementIds),
         postTransfers: async (moves) => {
           const resolved = await auth();
           if (!loaded.existingSquad) throw new Error('postTransfers called with no existing squad');
