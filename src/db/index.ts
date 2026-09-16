@@ -13,6 +13,7 @@ export * from './elements';
 export * from './gwStats';
 export * from './historyPast';
 export * from './fixtures';
+export * from './uefaAppearances';
 export * from './teamRatings';
 export * from './projections';
 export * from './squadState';
