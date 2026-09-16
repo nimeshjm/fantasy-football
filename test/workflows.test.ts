@@ -30,13 +30,20 @@ import {
   runDecisionCore,
   canonicalizePicks,
   picksEqual,
+  buildShortlistEntries,
+  refreshUefaAppearancesStep,
   type DecisionCoreDeps,
   type ExistingSquad,
 } from '../src/workflows/decideCommit';
 import { DecideCommitWorkflow } from '../src/workflows/decideCommit';
 import { isEnabled } from '../src/db';
 import type { TeamRow } from '../src/db';
-import { DEFAULT_ENTRY_NAME, DEFAULT_ENTRY_FAVOURITE_TEAM, DEFAULT_ENTRY_REGION } from '../src/env';
+import {
+  DEFAULT_ENTRY_NAME,
+  DEFAULT_ENTRY_FAVOURITE_TEAM,
+  DEFAULT_ENTRY_REGION,
+  type Env,
+} from '../src/env';
 import type { EntryCreateRequest, Region } from '../src/api/endpoints';
 
 // ---------------------------------------------------------------------------
@@ -423,6 +430,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
       return { delivered: true };
     },
     reloadLivePrices: async () => null,
+    getEuropeNotes: async () => new Map(),
     createEntry: async (payload) => {
       createEntryCalls++;
       createEntryPayloads.push(payload);
@@ -1258,5 +1266,174 @@ describe('my-team payload ordering (learned from a real 400)', () => {
     ];
 
     expect(orderPicksForMyTeam(accepted, elementTypeById)).toEqual(accepted);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #51: UEFA rotation-risk note wiring
+// ---------------------------------------------------------------------------
+
+describe('buildShortlistEntries: europeNotes wiring (issue #51)', () => {
+  it('sets europeNote only for element ids the map covers, leaving the rest undefined', () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 1,
+      [Position.DEF]: 1,
+      [Position.MID]: 0,
+      [Position.FWD]: 0,
+    });
+    const ids = elements.map((e) => e.id);
+    const europeNotes = new Map([[ids[0]!, "subbed 61' vs Milan (UEL)"]]);
+
+    const entries = buildShortlistEntries(ids, elements, projections, TEAMS, europeNotes);
+
+    expect(entries.find((e) => e.element.id === ids[0])?.europeNote).toBe(
+      "subbed 61' vs Milan (UEL)",
+    );
+    expect(entries.find((e) => e.element.id === ids[1])?.europeNote).toBeUndefined();
+  });
+
+  it('leaves every europeNote undefined when no map is passed at all', () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 1,
+      [Position.DEF]: 0,
+      [Position.MID]: 0,
+      [Position.FWD]: 0,
+    });
+    const entries = buildShortlistEntries(
+      elements.map((e) => e.id),
+      elements,
+      projections,
+      TEAMS,
+    );
+    expect(entries.every((e) => e.europeNote === undefined)).toBe(true);
+  });
+});
+
+describe('runDecisionCore threads getEuropeNotes into the LLM prompt (issue #51)', () => {
+  it('a europeNote from deps.getEuropeNotes reaches the lineup prompt on the lineup-only path', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 20,
+      cumulativeTransfers: 0,
+    };
+    const noteElementId = squadPicks[0]!.element;
+    const provider = new StubProvider({ ok: false, error: 'decline' });
+    const getEuropeNotesCalls: number[][] = [];
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      provider,
+      getEuropeNotes: async (elementIds) => {
+        getEuropeNotesCalls.push([...elementIds]);
+        return new Map([[noteElementId, "subbed 61' vs Milan (UEL)"]]);
+      },
+    });
+
+    await runDecisionCore('lineup-only', deps);
+
+    expect(getEuropeNotesCalls.length).toBeGreaterThan(0);
+    expect(getEuropeNotesCalls[0]).toEqual(expect.arrayContaining([noteElementId]));
+    expect(provider.calls.length).toBeGreaterThan(0);
+    const promptText = provider.calls.flatMap((c) => c.messages.map((m) => m.content)).join('\n');
+    expect(promptText).toContain("europe:subbed 61' vs Milan (UEL)");
+  });
+});
+
+describe('refreshUefaAppearancesStep (issue #51)', () => {
+  const ELEMENT_ROW = {
+    id: 100,
+    code: 100,
+    web_name: 'Pavlidis',
+    first_name: 'Vangelis',
+    second_name: 'Pavlidis',
+    team: 2,
+    element_type: 4,
+    now_cost: 80,
+    status: 'a',
+    news: '',
+    news_added: null,
+    chance_of_playing_this_round: null,
+    chance_of_playing_next_round: null,
+    ep_next: null,
+    ep_this: null,
+    total_points: 0,
+    event_points: 0,
+    form: '0.0',
+    points_per_game: '0.0',
+    selected_by_percent: '0.0',
+    minutes: 900,
+    removed: 0,
+    can_select: 1,
+    can_transact: 1,
+    updated_at: '2026-09-16T00:00:00Z',
+  };
+  const TEAM_ROW = { id: 2, code: 2, name: 'SL Benfica', short_name: 'SLB' };
+
+  function makeSquad(): ExistingSquad {
+    return {
+      entry: 1,
+      picks: [{ element: 100, position: 1, is_captain: false, is_vice_captain: false }],
+      bank: 0,
+      cumulativeTransfers: 0,
+    };
+  }
+
+  it('is skipped entirely on the squad-creation path -- no D1 read at all', async () => {
+    const db = {
+      prepare: () => {
+        throw new Error('must never be called when there is no existing squad');
+      },
+    } as unknown as D1Database;
+    const env = { DB: db, API_FOOTBALL_KEY: 'a-key' } as unknown as Env;
+
+    const result = await refreshUefaAppearancesStep(env, null);
+
+    expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
+  });
+
+  it('runs on the transfer/lineup path (reads elements/teams) even when API_FOOTBALL_KEY is unset', async () => {
+    let prepareCalls = 0;
+    const db = {
+      prepare: (sql: string) => {
+        prepareCalls++;
+        return {
+          all: async () => {
+            if (sql.includes('FROM elements')) return { results: [ELEMENT_ROW] };
+            if (sql.includes('FROM teams')) return { results: [TEAM_ROW] };
+            return { results: [] };
+          },
+        };
+      },
+    } as unknown as D1Database;
+    const env = { DB: db, API_FOOTBALL_KEY: undefined } as unknown as Env;
+
+    const result = await refreshUefaAppearancesStep(env, makeSquad());
+
+    expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
+    expect(prepareCalls).toBeGreaterThan(0);
+  });
+
+  it('never throws when the elements/teams read fails -- a failure here must never block the decision', async () => {
+    const db = {
+      prepare: () => {
+        throw new Error('D1 unavailable');
+      },
+    } as unknown as D1Database;
+    const env = { DB: db, API_FOOTBALL_KEY: 'a-key' } as unknown as Env;
+
+    await expect(refreshUefaAppearancesStep(env, makeSquad())).resolves.toEqual({
+      fetched: 0,
+      matched: 0,
+      unmatched: [],
+    });
   });
 });
