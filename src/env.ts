@@ -53,6 +53,10 @@ export interface Env {
   /** Where a dead-session alert is POSTed. Unset means alerting is off, so
    * CI and local dev post nowhere. Must be https -- see src/alert.ts. */
   ALERT_WEBHOOK_URL?: string;
+  /** api-football.com free-tier key (issue #51: UEFA rotation-risk signal).
+   * Unset means that signal is simply absent, never an error -- see
+   * src/api/apiFootball.ts. */
+  API_FOOTBALL_KEY?: string;
 }
 
 const DEFAULT_MAX_TRANSFERS_PER_GW = 1;

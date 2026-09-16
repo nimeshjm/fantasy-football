@@ -54,6 +54,30 @@ export interface ProjectionRow extends Projection {
   computed_at: string;
 }
 
+/**
+ * One owned player's appearance in one UEFA (Champions/Europa/Conference
+ * League) fixture -- issue #51. Independent of `FixtureRow`/`GwStatsRow`,
+ * which only ever cover domestic Primeira Liga fixtures (see
+ * src/workflows/ingest.ts); this is sourced from API-Football instead, keyed
+ * by OUR `element_id` (matched by name+club against API-Football's separate
+ * player-id space -- there is no shared id).
+ *
+ * `subbedOffMinute` is `null` for a player who was NOT substituted (played
+ * to the final whistle, or never started) -- absence, not 0, since 0 would
+ * misread as "subbed off in minute zero".
+ */
+export interface UefaAppearanceRow {
+  elementId: number;
+  fixtureId: number;
+  competition: 'UCL' | 'UEL' | 'UECL';
+  opponent: string;
+  kickoffTime: string;
+  started: boolean;
+  subbedOffMinute: number | null;
+  minutesPlayed: number;
+  fetchedAt: string;
+}
+
 export interface TeamRatingRow {
   team_id: number;
   attack: number;

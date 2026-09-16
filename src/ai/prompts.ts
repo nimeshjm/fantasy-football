@@ -137,6 +137,11 @@ export interface ShortlistEntry {
   clubShortName: string;
   /** Deterministic baseline expected points for the next event. */
   xpts: number;
+  /** UEFA rotation-risk note (issue #51), e.g. "subbed 61' vs Milan (UEL)" or
+   * "played 90' vs Milan (UEL)" -- set only when the player's club had a
+   * recent Champions/Europa/Conference League fixture. Absent (not `''`)
+   * when there is none, same convention as `element.news` being falsy. */
+  europeNote?: string;
 }
 
 /** One candidate transfer offered to the model. Already legality- and
@@ -171,10 +176,12 @@ function formatCost(nowCostTenths: number): string {
 
 const PLAYER_LINE_HEADER = 'id|name|pos|club|cost|xpts|form|mins|news?';
 
-/** ~35 tokens per line. See module docstring for why `news` is never
- * truncated. */
+/** ~35 tokens per line, +~10 more when `news` and/or `europeNote` (issue #51)
+ * are present. See module docstring for why `news` is never truncated; the
+ * same reasoning applies to `europeNote` -- both are the free-text signals a
+ * numeric model can't read on its own. */
 export function formatPlayerLine(entry: ShortlistEntry): string {
-  const { element, clubShortName, xpts } = entry;
+  const { element, clubShortName, xpts, europeNote } = entry;
   const base = [
     element.id,
     element.web_name,
@@ -185,7 +192,8 @@ export function formatPlayerLine(entry: ShortlistEntry): string {
     element.form,
     element.minutes,
   ].join('|');
-  return element.news ? `${base}|news:${element.news}` : base;
+  const withNews = element.news ? `${base}|news:${element.news}` : base;
+  return europeNote ? `${withNews}|europe:${europeNote}` : withNews;
 }
 
 function playerListBlock(label: string, entries: ShortlistEntry[]): string {
@@ -233,7 +241,10 @@ export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
     `You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. ${SQUAD_RULES_TEXT} ` +
     `Maximise total expected points (xpts) for the squad subject to those constraints. A ` +
     `player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat ` +
-    `an active injury or suspension as a strong reason to avoid that player. Respond using the ` +
+    `an active injury or suspension as a strong reason to avoid that player. An "europe" field ` +
+    `is a note on that player's most recent Champions/Europa/Conference League appearance (also ` +
+    `not reflected in xpts) - a player subbed off early there carries more fatigue/rotation risk ` +
+    `than one who played 90. Respond using the ` +
     `JSON schema only: one list of ids per position, and one short reason.`;
   // The rules are restated after the candidates as well as before them: the
   // list is long enough that the system message is thousands of tokens behind
@@ -298,7 +309,10 @@ export function buildLineupPrompt(owned: ShortlistEntry[]): BuiltPrompt {
     `with the captain's points doubled. A player's "news" field is a Portuguese injury/` +
     `suspension note not reflected in xpts - a starter who is actually injured or suspended ` +
     `scores nothing, so treat "news" as the most important signal for who starts and who is ` +
-    `captain. Respond using the JSON schema only: one list of ids per position (gk/def/mid/fwd), ` +
+    `captain. An "europe" field notes that player's most recent Champions/Europa/Conference ` +
+    `League appearance - being subbed off early there is a fatigue/rotation-risk signal against ` +
+    `starting or captaining them next, weigh it alongside "news". Respond using the JSON schema ` +
+    `only: one list of ids per position (gk/def/mid/fwd), ` +
     `one flex list of outfield ids, an integer captain index, an integer vice-captain index, and ` +
     `one short reason.`;
   // The index scheme and constraints are restated after the candidates as well as before
@@ -329,7 +343,9 @@ export function buildTransferPrompt(
     `candidate's "gain" is the deterministic model's projected point gain over the planning ` +
     `horizon if made. A player's "news" field is a Portuguese injury/suspension note the ` +
     `deterministic gain does not fully capture - weigh it when a candidate's outgoing or ` +
-    `incoming player is flagged. Pick the single best candidate, or elect not to transfer if ` +
+    `incoming player is flagged. An "europe" field notes that player's most recent Champions/` +
+    `Europa/Conference League appearance - being subbed off early there is a fatigue/rotation-` +
+    `risk signal, also not reflected in "gain". Pick the single best candidate, or elect not to transfer if ` +
     `none clearly helps. Respond using the JSON schema only: to make a transfer, echo that ` +
     `candidate's element_in and element_out ids exactly as given; to make no transfer, respond ` +
     `element_in=0 and element_out=0. Always include one short reason.`;
