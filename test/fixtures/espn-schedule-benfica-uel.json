@@ -1,0 +1,38 @@
+{
+  "_fixtureMeta": {
+    "source": "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/teams/1929/schedule",
+    "fetchedAt": "2026-09-18",
+    "note": "Real response for Benfica (espnTeamId 1929) in the uefa.europa (UEL) slug, trimmed to only the fields getRecentFinishedFixturesForTeam reads: events[].id, events[].date, events[].competitions[0].status.type.name, and events[].competitions[0].competitors[] reduced to {homeAway, team:{id, displayName}}. Dropped: season/seasonType, venue, attendance, logos, links, scores, records, and every non-Benfica event field. The full live 2026-27 League Phase schedule for this club currently has exactly one finished event (401915586, Benfica away at AC Milan, 2026-09-16); the rest of this season's fixtures had not been played yet as of fetchedAt."
+  },
+  "events": [
+    {
+      "id": "401915586",
+      "date": "2026-09-16T19:00Z",
+      "competitions": [
+        {
+          "status": {
+            "type": {
+              "name": "STATUS_FULL_TIME"
+            }
+          },
+          "competitors": [
+            {
+              "homeAway": "home",
+              "team": {
+                "id": "103",
+                "displayName": "AC Milan"
+              }
+            },
+            {
+              "homeAway": "away",
+              "team": {
+                "id": "1929",
+                "displayName": "Benfica"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

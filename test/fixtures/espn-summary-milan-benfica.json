@@ -1,0 +1,697 @@
+{
+  "_fixtureMeta": {
+    "source": "https://site.api.espn.com/apis/site/v2/sports/soccer/uefa.europa/summary?event=401915586",
+    "fetchedAt": "2026-09-18",
+    "note": "Real response for event 401915586 (AC Milan 0-2 Benfica, UEL League Phase, 2026-09-16), trimmed to only the fields getFixtureAppearances reads. Raw response is ~432KB; this cassette keeps just rosters[].{team:{id,displayName}, roster[].{starter,subbedIn,subbedOut,athlete:{id,fullName,lastName}}} and keyEvents[] filtered to the 10 type.type===\"substitution\" entries, each reduced to {type.type, clock:{value,displayValue}, participants[].athlete.id}. Dropped: boxscore, format, gameInfo, lastFiveGames, leaders, broadcasts, pickcenter, odds, news, header, article, videos, seasonseries, commentary, standings, every non-substitution keyEvent (goals, cards, VAR, etc.), athlete jersey/links/images/displayName/shortName, roster active/stats[]/formationPlace/media, participants[].athlete.displayName, and subbedInFor/subbedOutFor (unused -- this client joins substitutions to roster entries via keyEvents + athlete.id, never via those fields or via name matching). The real keyEvents text/shortText fields (also dropped, also unused) render Georgiy Sudakov as \"Heorhiy Sudakov\" -- one more reason this client must never parse names out of free text."
+  },
+  "rosters": [
+    {
+      "team": {
+        "id": "103",
+        "displayName": "AC Milan"
+      },
+      "roster": [
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "189026",
+            "fullName": "Mike Maignan",
+            "lastName": "Maignan"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "309570",
+            "fullName": "Koni De Winter",
+            "lastName": "De Winter"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "290375",
+            "fullName": "Strahinja Pavlovic",
+            "lastName": "Pavlovic"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "303919",
+            "fullName": "Filippo Terracciano",
+            "lastName": "Terracciano"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "307527",
+            "fullName": "Yunus Musah",
+            "lastName": "Musah"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "303973",
+            "fullName": "Ardon Jashari",
+            "lastName": "Jashari"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "345637",
+            "fullName": "Davide Bartesaghi",
+            "lastName": "Bartesaghi"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "228298",
+            "fullName": "Samuel Chukwueze",
+            "lastName": "Chukwueze"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "288896",
+            "fullName": "Gon\u00e7alo Ramos",
+            "lastName": "Ramos"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "359754",
+            "fullName": "Alphadjo Ciss\u00e8",
+            "lastName": "Ciss\u00e8"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "322771",
+            "fullName": "Omari Hutchinson",
+            "lastName": "Hutchinson"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "271132",
+            "fullName": "Alexis Saelemaekers",
+            "lastName": "Saelemaekers"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "214689",
+            "fullName": "Pervis Estupi\u00f1\u00e1n",
+            "lastName": "Estupi\u00f1\u00e1n"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "176203",
+            "fullName": "Adrien Rabiot",
+            "lastName": "Rabiot"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "384305",
+            "fullName": "Lorenzo Torriani",
+            "lastName": "Torriani"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "255922",
+            "fullName": "Matteo Gabbia",
+            "lastName": "Gabbia"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "377563",
+            "fullName": "Francesco Camarda",
+            "lastName": "Camarda"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "340678",
+            "fullName": "Diego Moreira",
+            "lastName": "Moreira"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "225607",
+            "fullName": "Christian Pulisic",
+            "lastName": "Pulisic"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "186505",
+            "fullName": "Ruben Loftus-Cheek",
+            "lastName": "Loftus-Cheek"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "76762",
+            "fullName": "Luka Modric",
+            "lastName": "Modric"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "236210",
+            "fullName": "Fikayo Tomori",
+            "lastName": "Tomori"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "324097",
+            "fullName": "Mario Gila",
+            "lastName": "Gila"
+          }
+        }
+      ]
+    },
+    {
+      "team": {
+        "id": "1929",
+        "displayName": "Benfica"
+      },
+      "roster": [
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "286109",
+            "fullName": "Anatoliy Trubin",
+            "lastName": "Trubin"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "329691",
+            "fullName": "Tom\u00e1s Ara\u00fajo",
+            "lastName": "Ara\u00fajo"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "332081",
+            "fullName": "Alessandro Circati",
+            "lastName": "Circati"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "291730",
+            "fullName": "Souffian El Karouani",
+            "lastName": "El Karouani"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "403874",
+            "fullName": "Daniel Banjaqui",
+            "lastName": "Banjaqui"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "308603",
+            "fullName": "Georgiy Sudakov",
+            "lastName": "Sudakov"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "224144",
+            "fullName": "Jo\u00e3o Palhinha",
+            "lastName": "Palhinha"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "212900",
+            "fullName": "Fredrik Aursnes",
+            "lastName": "Aursnes"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "285629",
+            "fullName": "Jhon Dur\u00e1n",
+            "lastName": "Dur\u00e1n"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": true,
+          "athlete": {
+            "id": "304933",
+            "fullName": "Jakub Kaminski",
+            "lastName": "Kaminski"
+          }
+        },
+        {
+          "starter": true,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "229443",
+            "fullName": "Dodi Luk\u00e9bakio",
+            "lastName": "Luk\u00e9bakio"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "220819",
+            "fullName": "Vangelis Pavlidis",
+            "lastName": "Pavlidis"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "403873",
+            "fullName": "An\u00edsio Cabral",
+            "lastName": "Cabral"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "192421",
+            "fullName": "Rafa Silva",
+            "lastName": "Silva"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "193917",
+            "fullName": "Cl\u00e9ment Lenglet",
+            "lastName": "Lenglet"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "313415",
+            "fullName": "Andreas Schjelderup",
+            "lastName": "Schjelderup"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "271854",
+            "fullName": "Leandro Barreiro",
+            "lastName": "Barreiro"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "307631",
+            "fullName": "Samuel Soares",
+            "lastName": "Soares"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "329653",
+            "fullName": "Samuel Dahl",
+            "lastName": "Dahl"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": true,
+          "subbedOut": false,
+          "athlete": {
+            "id": "339191",
+            "fullName": "Gianluca Prestianni",
+            "lastName": "Prestianni"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "361355",
+            "fullName": "Claudio Echeverri",
+            "lastName": "Echeverri"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "292921",
+            "fullName": "Enzo Barrenechea",
+            "lastName": "Barrenechea"
+          }
+        },
+        {
+          "starter": false,
+          "subbedIn": false,
+          "subbedOut": false,
+          "athlete": {
+            "id": "358451",
+            "fullName": "Manu Silva",
+            "lastName": "Silva"
+          }
+        }
+      ]
+    }
+  ],
+  "keyEvents": [
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 2700.0,
+        "displayValue": "45'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "225607"
+          }
+        },
+        {
+          "athlete": {
+            "id": "322771"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 2700.0,
+        "displayValue": "45'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "324097"
+          }
+        },
+        {
+          "athlete": {
+            "id": "303919"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 3394.0,
+        "displayValue": "57'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "340678"
+          }
+        },
+        {
+          "athlete": {
+            "id": "359754"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 3403.0,
+        "displayValue": "57'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "271132"
+          }
+        },
+        {
+          "athlete": {
+            "id": "345637"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 4194.0,
+        "displayValue": "70'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "271854"
+          }
+        },
+        {
+          "athlete": {
+            "id": "212900"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 4195.0,
+        "displayValue": "70'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "339191"
+          }
+        },
+        {
+          "athlete": {
+            "id": "308603"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 4370.0,
+        "displayValue": "73'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "176203"
+          }
+        },
+        {
+          "athlete": {
+            "id": "303973"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 4747.0,
+        "displayValue": "80'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "313415"
+          }
+        },
+        {
+          "athlete": {
+            "id": "304933"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 4748.0,
+        "displayValue": "80'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "220819"
+          }
+        },
+        {
+          "athlete": {
+            "id": "285629"
+          }
+        }
+      ]
+    },
+    {
+      "type": {
+        "type": "substitution"
+      },
+      "clock": {
+        "value": 5273.0,
+        "displayValue": "88'"
+      },
+      "participants": [
+        {
+          "athlete": {
+            "id": "329653"
+          }
+        },
+        {
+          "athlete": {
+            "id": "291730"
+          }
+        }
+      ]
+    }
+  ]
+}
