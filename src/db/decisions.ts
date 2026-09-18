@@ -27,7 +27,7 @@ function mapActionKind(kind: string): DecisionKind | null {
   }
 }
 
-function parseDecision(intent: unknown): Decision | null {
+export function parseDecision(intent: unknown): Decision | null {
   if (typeof intent !== 'object' || intent === null || Array.isArray(intent)) return null;
   const d = intent as Record<string, unknown>;
   if (

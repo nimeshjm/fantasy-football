@@ -33,6 +33,7 @@ import {
   groupDecisions,
   isDryRun,
   isEnabled,
+  parseDecision,
   type ActionLogRow,
   type AiCallRow,
   type DecisionWithAttempts,
@@ -116,15 +117,97 @@ function decisionPointRow(e: EventRow, current: EventRow | null, next: EventRow 
   );
 }
 
+/** `web_name` for a pick's element, or `#<id>` when the element isn't in
+ * `elementById` (e.g. a stale/removed player referenced by an old row). */
+function playerName(elementById: Map<number, ElementRow>, id: number): string {
+  return elementById.get(id)?.web_name ?? `#${id}`;
+}
+
 function transferRow(t: TransferMove, elementById: Map<number, ElementRow>): string {
-  const nameFor = (id: number): string => elementById.get(id)?.web_name ?? `#${id}`;
   return (
-    `<tr><td>${escapeHtml(nameFor(t.element_in))}</td><td>${escapeHtml(nameFor(t.element_out))}</td>` +
+    `<tr><td>${escapeHtml(playerName(elementById, t.element_in))}</td><td>${escapeHtml(playerName(elementById, t.element_out))}</td>` +
     `<td>${escapeHtml(t.purchase_price)}</td><td>${escapeHtml(t.selling_price)}</td></tr>`
   );
 }
 
-function actionRow(a: ActionLogRow): string {
+/** Guards `picks` before it's mapped over. `parseDecision` only validates
+ * `kind`/`source`/`reasoning` before casting to `Decision` -- `picks` is
+ * unchecked -- and `safeParse` (src/db/decisions.ts) returns the raw string
+ * when the stored JSON is malformed, so an unguarded `.map` here would throw
+ * and 500 the whole dashboard. */
+function isPickArray(v: unknown): v is Pick[] {
+  return (
+    Array.isArray(v) &&
+    v.every((p) => typeof p === 'object' && p !== null && typeof (p as Pick).element === 'number')
+  );
+}
+
+/** Collapsed-by-default sub-table of picks, split into Starting XI
+ * (`position <= 11`) and Bench, per the convention documented on `Pick`
+ * (src/types.ts) and preserved by `orderPicksForMyTeam`. */
+function lineupPicksTable(picks: Pick[], elementById: Map<number, ElementRow>): string {
+  const startingXi = picks.filter((p) => p.position <= 11);
+  const bench = picks.filter((p) => p.position > 11);
+  const captain = picks.find((p) => p.is_captain);
+  const viceCaptain = picks.find((p) => p.is_vice_captain);
+  const summaryParts = [
+    captain ? `C: ${escapeHtml(playerName(elementById, captain.element))}` : '',
+    viceCaptain ? `VC: ${escapeHtml(playerName(elementById, viceCaptain.element))}` : '',
+  ].filter(Boolean);
+  const summary =
+    `${escapeHtml(picks.length)} picks` +
+    (summaryParts.length > 0 ? ` &mdash; ${summaryParts.join(', ')}` : '');
+
+  const group = (label: string, rows: Pick[]): string =>
+    rows.length === 0
+      ? ''
+      : `<tr class="grp"><td colspan="7">${escapeHtml(label)}</td></tr>` +
+        rows.map((p) => pickRow(p, elementById)).join('');
+
+  return (
+    `<details class="lineup"><summary>${summary}</summary>` +
+    '<table><thead><tr><th>#</th><th>Player</th><th>Pos</th><th>Flags</th>' +
+    '<th>GW pts</th><th>Total pts</th><th>Notes</th></tr></thead>' +
+    `<tbody>${group('Starting XI', startingXi)}${group('Bench', bench)}</tbody></table>` +
+    '</details>'
+  );
+}
+
+/** Inner HTML of the "Detail" cell -- exported so it can be unit-tested
+ * directly, since `GET /` itself needs a live D1 binding. */
+export function actionDetailCell(a: ActionLogRow, elementById: Map<number, ElementRow>): string {
+  const fallback = `<pre>${escapeHtml(safeJson(a.response ?? a.intent))}</pre>`;
+
+  if (a.kind === 'lineup-recheck') {
+    const decision = parseDecision(a.intent);
+    if (decision === null) return fallback;
+    let body = `<p>${escapeHtml(decision.reasoning)}</p>`;
+    if (decision.overrideReason) {
+      body += `<p><span class="tag gate">override reason</span> ${escapeHtml(decision.overrideReason)}</p>`;
+    }
+    if (isPickArray(decision.picks)) {
+      body += lineupPicksTable(decision.picks, elementById);
+    }
+    return body;
+  }
+
+  if (a.kind === 'lineup-post') {
+    if (!isPickArray(a.intent)) return fallback;
+    let body = lineupPicksTable(a.intent, elementById);
+    const hasResponse =
+      a.response !== null &&
+      a.response !== undefined &&
+      !(typeof a.response === 'object' && Object.keys(a.response).length === 0);
+    if (hasResponse) {
+      body += `<details><summary>API response</summary><pre>${escapeHtml(safeJson(a.response))}</pre></details>`;
+    }
+    return body;
+  }
+
+  return fallback;
+}
+
+function actionRow(a: ActionLogRow, elementById: Map<number, ElementRow>): string {
   const overrideNote =
     a.source === 'deterministic-gate' ? ' <span class="tag gate">gate override</span>' : '';
   return (
@@ -132,7 +215,7 @@ function actionRow(a: ActionLogRow): string {
     `<td>${escapeHtml(a.source)}${overrideNote}</td>` +
     `<td>${a.ok ? 'ok' : '<span class="tag err">failed</span>'}</td>` +
     `<td>${a.dryRun ? 'dry-run' : 'live'}</td>` +
-    `<td><pre>${escapeHtml(safeJson(a.response ?? a.intent))}</pre></td></tr>`
+    `<td><div class="detail">${actionDetailCell(a, elementById)}</div></td></tr>`
   );
 }
 
@@ -332,6 +415,11 @@ const STYLE = `
   details.attempt { margin: .3rem 0 .3rem 1rem; }
   details.attempt summary, details.attempt details summary { cursor: pointer; font-size: .85rem; }
   details.attempt details { margin: .3rem 0 .3rem 1rem; }
+  .detail { max-width: 40rem; overflow-x: auto; }
+  .detail table { width: auto; margin-top: .25rem; }
+  .detail td { max-width: 12rem; overflow-wrap: break-word; }
+  .detail summary { cursor: pointer; font-size: .8rem; }
+  tr.grp td { background: #f6f6f6; font-weight: 600; font-size: .75rem; }
 `;
 
 async function renderDashboardHtml(env: Env, token: string | null): Promise<string> {
@@ -465,7 +553,7 @@ ${
 
 <h2>Recent actions</h2>
 <table><thead><tr><th>Time</th><th>Kind</th><th>Source</th><th>Status</th><th>Mode</th><th>Detail</th></tr></thead>
-<tbody>${recentActions.map(actionRow).join('') || '<tr><td colspan="6">None yet.</td></tr>'}</tbody></table>
+<tbody>${recentActions.map((a) => actionRow(a, elementById)).join('') || '<tr><td colspan="6">None yet.</td></tr>'}</tbody></table>
 
 <h2>AI call log</h2>
 <p><a href="${pageLink('/decisions', {}, token)}">Full decision log &rarr;</a></p>
