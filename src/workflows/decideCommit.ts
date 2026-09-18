@@ -1238,7 +1238,10 @@ const UEFA_LOOKBACK_DAYS = 14;
  * returns zero counts immediately -- no D1 read, no network call -- on that
  * path. Never throws: any failure (a bad D1 read for elements/teams, or
  * anything unexpected) degrades to "no fresh europe: signal this cycle",
- * same contract as `refreshUefaAppearances` itself.
+ * same contract as `refreshUefaAppearances` itself. Fires an ops alert
+ * (never blocking, see the call site below) when fixtures were found but
+ * none matched -- the one shape that means the provider is broken rather
+ * than just quiet.
  */
 export async function refreshUefaAppearancesStep(
   env: Env,
@@ -1255,13 +1258,36 @@ export async function refreshUefaAppearancesStep(
       .filter((e): e is NonNullable<typeof e> => e !== undefined);
     const sinceIso = new Date(Date.now() - UEFA_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-    return await refreshUefaAppearances({
+    const result = await refreshUefaAppearances({
       db: env.DB,
-      apiKey: env.API_FOOTBALL_KEY,
       ownedElements,
       teams,
       sinceIso,
     });
+
+    // Silent-failure tripwire: every failure path above degrades to zero
+    // rows with no error, so a broken match (e.g. ESPN renaming a player)
+    // would otherwise go unnoticed indefinitely. Only fires when fixtures
+    // WERE found but none matched -- `fetched === 0` is a normal quiet week
+    // (no Champions League fixtures between matchdays) and must stay silent
+    // to avoid training the owner to ignore this alert.
+    if (result.fetched > 0 && result.matched === 0) {
+      // Capped to keep the summary short and, worse, deliverable: a full
+      // ESPN name-format break can carry every appearance across up to
+      // `MAX_SUMMARY_FETCHES_PER_RUN` fixtures as unmatched, and a Discord
+      // webhook 400s on an over-length `content` -- which would silently
+      // fail the very alert reporting the silence. The full list still
+      // rides in `fields` below.
+      const shown = result.unmatched.slice(0, 5).join(', ') || 'none named';
+      const more = result.unmatched.length > 5 ? ` (+${result.unmatched.length - 5} more)` : '';
+      await sendOpsAlert(
+        env,
+        `uefa rotation signal: ${result.fetched} fixture(s) fetched, 0 matched -- unmatched: ${shown}${more}`,
+        { fetched: result.fetched, matched: result.matched, unmatched: result.unmatched },
+      );
+    }
+
+    return result;
   } catch {
     return zero;
   }
