@@ -156,12 +156,12 @@ function lineupPicksTable(picks: Pick[], elementById: Map<number, ElementRow>): 
   ].filter(Boolean);
   const summary =
     `${escapeHtml(picks.length)} picks` +
-    (summaryParts.length > 0 ? ` — ${summaryParts.join(', ')}` : '');
+    (summaryParts.length > 0 ? ` &mdash; ${summaryParts.join(', ')}` : '');
 
   const group = (label: string, rows: Pick[]): string =>
     rows.length === 0
       ? ''
-      : `<tr class="grp"><td colspan="7">${label}</td></tr>` +
+      : `<tr class="grp"><td colspan="7">${escapeHtml(label)}</td></tr>` +
         rows.map((p) => pickRow(p, elementById)).join('');
 
   return (
@@ -415,8 +415,9 @@ const STYLE = `
   details.attempt { margin: .3rem 0 .3rem 1rem; }
   details.attempt summary, details.attempt details summary { cursor: pointer; font-size: .85rem; }
   details.attempt details { margin: .3rem 0 .3rem 1rem; }
-  .detail { max-width: 40rem; }
+  .detail { max-width: 40rem; overflow-x: auto; }
   .detail table { width: auto; margin-top: .25rem; }
+  .detail td { max-width: 12rem; overflow-wrap: break-word; }
   .detail summary { cursor: pointer; font-size: .8rem; }
   tr.grp td { background: #f6f6f6; font-weight: 600; font-size: .75rem; }
 `;
