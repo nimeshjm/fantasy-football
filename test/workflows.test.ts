@@ -7,9 +7,27 @@ import { orderPicksForMyTeam, sortPicksByTypeOrder } from '../src/api/endpoints'
  * Covers the three integration hazards from the task brief plus the
  * DRY_RUN / kill-switch / transfer-cap / neuron-cap rails.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { WorkflowStep } from 'cloudflare:workers';
 
+// `refreshUefaAppearancesStep` now calls the real, keyless ESPN client
+// (issue #58) for any club `espnTeamId` resolves -- no more missing-key
+// short-circuit -- so any test reaching it must mock the provider, same
+// pattern as test/uefaRotation.test.ts.
+vi.mock('../src/api/espn', () => ({
+  getRecentFinishedFixturesForTeam: vi.fn(),
+  getFixtureAppearances: vi.fn(),
+}));
+
+// `refreshUefaAppearancesStep` fires this directly (not through
+// `DecisionCoreDeps.sendOpsAlert`) for the silent-failure tripwire -- see
+// the "refreshUefaAppearancesStep ops alert" describe block below.
+vi.mock('../src/alert', () => ({
+  sendOpsAlert: vi.fn(),
+}));
+
+import { getRecentFinishedFixturesForTeam, getFixtureAppearances } from '../src/api/espn';
+import { sendOpsAlert } from '../src/alert';
 import {
   Position,
   RULES,
@@ -1348,7 +1366,17 @@ describe('runDecisionCore threads getEuropeNotes into the LLM prompt (issue #51)
   });
 });
 
-describe('refreshUefaAppearancesStep (issue #51)', () => {
+describe('refreshUefaAppearancesStep (issue #51/#58)', () => {
+  const fixturesMock = vi.mocked(getRecentFinishedFixturesForTeam);
+  const appearancesMock = vi.mocked(getFixtureAppearances);
+  const sendOpsAlertMock = vi.mocked(sendOpsAlert);
+
+  beforeEach(() => {
+    fixturesMock.mockReset();
+    appearancesMock.mockReset();
+    sendOpsAlertMock.mockReset().mockResolvedValue({ delivered: true });
+  });
+
   const ELEMENT_ROW = {
     id: 100,
     code: 100,
@@ -1393,33 +1421,50 @@ describe('refreshUefaAppearancesStep (issue #51)', () => {
         throw new Error('must never be called when there is no existing squad');
       },
     } as unknown as D1Database;
-    const env = { DB: db, API_FOOTBALL_KEY: 'a-key' } as unknown as Env;
+    const env = { DB: db } as unknown as Env;
 
     const result = await refreshUefaAppearancesStep(env, null);
 
     expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
   });
 
-  it('runs on the transfer/lineup path (reads elements/teams) even when API_FOOTBALL_KEY is unset', async () => {
+  /** `SLB` (the test fixture's club) now resolves to a real ESPN team id
+   * (`espnTeamId`, src/api/espnTeams.ts), so every test below that reaches
+   * `refreshUefaAppearances` must mock the provider -- there is no longer a
+   * missing-key short-circuit. */
+  function elementsTeamsDb(): D1Database {
+    return {
+      prepare: (sql: string) => {
+        if (sql.includes('FROM elements')) {
+          return { all: async () => ({ results: [ELEMENT_ROW] }) };
+        }
+        if (sql.includes('FROM teams')) {
+          return { all: async () => ({ results: [TEAM_ROW] }) };
+        }
+        // hasUefaAppearances: `.bind(...).all()` against uefa_appearances --
+        // empty, so no fixture is treated as already-covered.
+        return { bind: () => ({ all: async () => ({ results: [] }) }) };
+      },
+    } as unknown as D1Database;
+  }
+
+  it('tolerates a failing ESPN provider on the transfer/lineup path -- zero counts, never throws', async () => {
+    fixturesMock.mockRejectedValue(new Error('espn unavailable'));
     let prepareCalls = 0;
     const db = {
       prepare: (sql: string) => {
         prepareCalls++;
-        return {
-          all: async () => {
-            if (sql.includes('FROM elements')) return { results: [ELEMENT_ROW] };
-            if (sql.includes('FROM teams')) return { results: [TEAM_ROW] };
-            return { results: [] };
-          },
-        };
+        return elementsTeamsDb().prepare(sql);
       },
     } as unknown as D1Database;
-    const env = { DB: db, API_FOOTBALL_KEY: undefined } as unknown as Env;
+    const env = { DB: db } as unknown as Env;
 
     const result = await refreshUefaAppearancesStep(env, makeSquad());
 
     expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
     expect(prepareCalls).toBeGreaterThan(0);
+    expect(fixturesMock).toHaveBeenCalled();
+    expect(sendOpsAlertMock).not.toHaveBeenCalled();
   });
 
   it('never throws when the elements/teams read fails -- a failure here must never block the decision', async () => {
@@ -1428,12 +1473,64 @@ describe('refreshUefaAppearancesStep (issue #51)', () => {
         throw new Error('D1 unavailable');
       },
     } as unknown as D1Database;
-    const env = { DB: db, API_FOOTBALL_KEY: 'a-key' } as unknown as Env;
+    const env = { DB: db } as unknown as Env;
 
     await expect(refreshUefaAppearancesStep(env, makeSquad())).resolves.toEqual({
       fetched: 0,
       matched: 0,
       unmatched: [],
+    });
+    expect(sendOpsAlertMock).not.toHaveBeenCalled();
+  });
+
+  describe('ops alert (silent-failure tripwire)', () => {
+    it('alerts once, naming counts and unmatched names, when fixtures were found but none matched', async () => {
+      fixturesMock.mockResolvedValue([
+        {
+          fixtureId: 5001,
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          kickoffTime: '2026-09-16T19:00:00Z',
+        },
+      ]);
+      appearancesMock.mockResolvedValue([
+        {
+          playerName: 'Someone Unmatched',
+          playerLastName: 'Unmatched',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+        },
+      ]);
+      const env = {
+        DB: elementsTeamsDb(),
+        ALERT_WEBHOOK_URL: 'https://example.com/hook',
+      } as unknown as Env;
+
+      const result = await refreshUefaAppearancesStep(env, makeSquad());
+
+      expect(result.fetched).toBe(1);
+      expect(result.matched).toBe(0);
+      expect(result.unmatched).toEqual(['Someone Unmatched']);
+      expect(sendOpsAlertMock).toHaveBeenCalledTimes(1);
+      const [, summary, fields] = sendOpsAlertMock.mock.calls[0]!;
+      expect(summary).toContain('1 fixture');
+      expect(summary).toContain('0 matched');
+      expect(summary).toContain('Someone Unmatched');
+      expect(fields).toEqual({ fetched: 1, matched: 0, unmatched: ['Someone Unmatched'] });
+    });
+
+    it('never alerts when fetched is zero -- a quiet week between matchdays must stay silent', async () => {
+      fixturesMock.mockResolvedValue([]);
+      const env = {
+        DB: elementsTeamsDb(),
+        ALERT_WEBHOOK_URL: 'https://example.com/hook',
+      } as unknown as Env;
+
+      const result = await refreshUefaAppearancesStep(env, makeSquad());
+
+      expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
+      expect(sendOpsAlertMock).not.toHaveBeenCalled();
     });
   });
 });
