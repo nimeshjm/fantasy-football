@@ -4,6 +4,15 @@
  * migrations/0005_uefa_appearances.sql and Env.API_FOOTBALL_KEY's doc
  * comment in src/env.ts). Auth is a single header, `x-apisports-key`.
  *
+ * DORMANT (issue #58): kept in the tree, unwired, as an escape hatch. The
+ * free plan only exposes seasons 2022-2024 ("Free plans do not have access
+ * to this season, try from 2022 to 2024."), so it cannot serve the current
+ * season. The live rotation-risk signal now runs on src/api/espn.ts. A
+ * second, independent blocker if this is ever revived: `/fixtures/lineups`
+ * returns abbreviated names (e.g. "A. Trubin"), which the exact matcher in
+ * src/uefaRotation.ts cannot match -- ESPN returns full names, which is why
+ * it replaced this client. Usable again the moment a paid plan is in place.
+ *
  * Contract, mirrored from `DecisionCoreDeps.fetchRegions` in
  * src/workflows/decideCommit.ts: this is an OPTIONAL port that must never
  * throw past its own boundary. Every exported function returns `null`/`[]`
@@ -43,23 +52,9 @@ const REQUEST_TIMEOUT_MS = 20_000;
 /**
  * UEFA club competition league ids, as api-football.com defines them.
  *
- * UNVERIFIED against a live, keyed API-Football call or against their
- * docs/dashboard -- both 403 automated fetches (docs page and
- * dashboard.api-football.com alike). UCL=2 and UEL=3 are consistently
- * cited across community sources. UECL=848 carries lower confidence on
- * that basis alone.
- *
- * All three WERE cross-checked against API-Football's public,
- * unauthenticated crest CDN (`https://media.api-sports.io/football/
- * leagues/<id>.png`, the same host their `logo` field points to): id 2
- * returned the UEFA Champions League crest, 3 the Europa League crest, and
- * 848 the Europa Conference League crest -- not a 403 and not some other
- * competition's badge. That is real corroborating evidence, not a guess,
- * but it is still not the same as reading `id` back out of a genuine
- * `/leagues?search=uefa` JSON response. Spot-check that once a real
- * API-Football key exists, before relying on this harder than a
- * best-effort, silently-skippable signal -- do not present these as
- * independently confirmed fact anywhere else.
+ * Confirmed live via a keyed `/leagues?search=UEFA` call on 2026-09-18:
+ * 2 = UEFA Champions League, 3 = UEFA Europa League, 848 = UEFA Europa
+ * Conference League.
  */
 export const UEFA_LEAGUE_IDS = {
   UCL: 2,
@@ -175,6 +170,14 @@ export async function getRecentFinishedFixturesForTeam(
 ): Promise<ApiFootballFixture[]> {
   const from = sinceIso.slice(0, 10);
   const to = new Date().toISOString().slice(0, 10);
+  // API-Football requires `season`, the campaign's start year: a European
+  // season runs July-May, so a month >= 7 belongs to the campaign starting
+  // that year, and a month < 7 belongs to the one that started the year
+  // before. Derived from `sinceIso`, not a fresh clock read, so it stays
+  // consistent with the window being queried.
+  const sinceDate = new Date(sinceIso);
+  const season =
+    sinceDate.getUTCMonth() + 1 >= 7 ? sinceDate.getUTCFullYear() : sinceDate.getUTCFullYear() - 1;
 
   const perCompetition = await Promise.all(
     (Object.entries(UEFA_LEAGUE_IDS) as [ApiFootballFixture['competition'], number][]).map(
@@ -182,6 +185,7 @@ export async function getRecentFinishedFixturesForTeam(
         const items = await apiFootballGet<RawFixtureItem>(apiKey, '/fixtures', {
           team: apiFootballTeamId,
           league: leagueId,
+          season,
           from,
           to,
           status: 'FT',

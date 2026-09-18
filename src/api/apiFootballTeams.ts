@@ -20,28 +20,19 @@
  * they already hit the normal "unmapped club" skip path everywhere this map
  * is consulted.
  *
- * The four API-Football ids below were NOT confirmed via a live, keyed API
- * call (no key exists yet) or via api-football.com's own docs/dashboard --
- * both 403 to automated fetches (see UEFA_LEAGUE_IDS in ./apiFootball.ts for
- * the same problem on the competition-id side). They WERE cross-checked
- * against API-Football's public, unauthenticated crest CDN
- * (`https://media.api-sports.io/football/teams/<id>.png`, the same host
- * their `logo` field points to) -- each id below returned the correct
- * club's crest image, not a 403 or an unrelated badge. That is good
- * evidence the id is real and correctly assigned, but it is still not the
- * same as reading the id back out of a genuine `/teams?search=` JSON
- * response. Spot-check that once a real API-Football key exists, before
- * leaning on this harder than "best-effort, silently-skippable signal".
+ * The four API-Football ids below were confirmed live via a keyed
+ * `/teams?id=` call on 2026-09-18: 211 = Benfica, 212 = FC Porto,
+ * 217 = SC Braga, 228 = Sporting CP (all Portugal).
  *
  * An unmapped club (missing from this record, or a `short_name` that
  * doesn't match one of these keys) is a normal, silent "skip" case
  * everywhere this map is read -- never an error.
  */
 export const API_FOOTBALL_TEAM_IDS: Readonly<Record<string, number>> = {
-  SLB: 211, // teams.id 2, SL Benfica -- crest-verified
-  SCB: 217, // teams.id 12, SC Braga -- crest-verified
-  SCP: 228, // teams.id 13, Sporting CP -- crest-verified
-  FCP: 212, // teams.id 15, FC Porto -- crest-verified
+  SLB: 211, // teams.id 2, SL Benfica
+  SCB: 217, // teams.id 12, SC Braga
+  SCP: 228, // teams.id 13, Sporting CP
+  FCP: 212, // teams.id 15, FC Porto
 };
 
 /** `undefined` for any club not in `API_FOOTBALL_TEAM_IDS` -- e.g. every
