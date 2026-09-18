@@ -1,12 +1,20 @@
 /**
- * Tests for src/uefaRotation.ts (issue #51): the UEFA rotation-risk signal's
+ * Tests for src/uefaRotation.ts (issue #58): the UEFA rotation-risk signal's
  * name-matching, note-formatting and orchestration logic. No real D1 or
- * network involved -- `fetch` is stubbed (same pattern as
- * test/apiFootball.test.ts) and D1 is a small in-memory fake purpose-built
- * for the two `uefa_appearances` query shapes this module actually issues.
+ * network involved -- `../src/api/espn` is mocked wholesale (its fetch
+ * bodies are someone else's stub) and D1 is a small in-memory fake
+ * purpose-built for the two `uefa_appearances` query shapes this module
+ * actually issues.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+vi.mock('../src/api/espn', () => ({
+  getRecentFinishedFixturesForTeam: vi.fn(),
+  getFixtureAppearances: vi.fn(),
+}));
+
+import { getFixtureAppearances, getRecentFinishedFixturesForTeam } from '../src/api/espn';
+import type { UefaFixture } from '../src/api/espn';
 import {
   buildEuropeNotes,
   formatEuropeNote,
@@ -15,6 +23,9 @@ import {
 } from '../src/uefaRotation';
 import type { Element } from '../src/types';
 import type { TeamRow } from '../src/db';
+
+const fixturesMock = vi.mocked(getRecentFinishedFixturesForTeam);
+const appearancesMock = vi.mocked(getFixtureAppearances);
 
 // ---------------------------------------------------------------------------
 // matchElementByName
@@ -50,8 +61,10 @@ describe('matchElementByName', () => {
   });
 
   it('falls back to web_name equality when the full name does not match', () => {
-    // API-Football reports just the short display name "Rafa" -- doesn't
-    // match Rafael Camacho's full name, but does match his web_name.
+    // ESPN's `playerLastName` fallback (uefaRotation.ts) is what actually
+    // triggers this in production, but the function itself just sees a
+    // short/display name here -- doesn't match Rafael Camacho's full name,
+    // but does match his web_name.
     expect(matchElementByName(candidates, 'Rafa')).toBe(3);
   });
 
@@ -207,20 +220,24 @@ function makeElement(overrides: Partial<Element> & { id: number }): Element {
 
 const TEAMS: TeamRow[] = [{ id: 2, code: 2, name: 'SL Benfica', short_name: 'SLB' }];
 
-function jsonResponse(body: unknown): Response {
-  return { status: 200, ok: true, json: async () => body } as unknown as Response;
+function fixture(overrides: Partial<UefaFixture> = {}): UefaFixture {
+  return {
+    fixtureId: 5001,
+    competition: 'UEL',
+    opponent: 'AC Milan',
+    kickoffTime: '2026-09-16T19:00:00Z',
+    ...overrides,
+  };
 }
 
 describe('refreshUefaAppearances', () => {
-  let fetchMock: ReturnType<typeof vi.fn>;
-
   beforeEach(() => {
-    fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    fixturesMock.mockReset();
+    appearancesMock.mockReset();
   });
 
   afterEach(() => {
-    vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
   const pavlidis = makeElement({
@@ -237,74 +254,36 @@ describe('refreshUefaAppearances', () => {
     first_name: 'Alexander',
     second_name: 'Dahl',
   });
-
-  function mockEmptyFixturesEverywhere() {
-    fetchMock.mockResolvedValue(jsonResponse({ response: [] }));
-  }
-
-  it('skips entirely when apiKey is unset -- no fetch, no D1 read/write', async () => {
-    const { db, rows } = makeFakeDb();
-    const result = await refreshUefaAppearances({
-      db,
-      apiKey: undefined,
-      ownedElements: [pavlidis, dahl],
-      teams: TEAMS,
-      sinceIso: '2026-09-01T00:00:00Z',
-    });
-
-    expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
-    expect(fetchMock).not.toHaveBeenCalled();
-    expect(rows()).toEqual([]);
+  const trubin = makeElement({
+    id: 102,
+    team: 2,
+    web_name: 'Trubin',
+    first_name: 'Anatolii',
+    second_name: 'Trubin',
   });
 
   it('fetches, matches by name, and upserts a new fixture', async () => {
-    // getRecentFinishedFixturesForTeam: 3 calls (UCL, UEL, UECL). Only UEL
-    // has a finished fixture.
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ response: [] })) // UCL
-      .mockResolvedValueOnce(
-        jsonResponse({
-          response: [
-            {
-              fixture: { id: 5001, date: '2026-09-16T19:00:00+00:00', status: { short: 'FT' } },
-              teams: { home: { id: 211, name: 'SL Benfica' }, away: { id: 489, name: 'AC Milan' } },
-            },
-          ],
-        }),
-      ) // UEL
-      .mockResolvedValueOnce(jsonResponse({ response: [] })) // UECL
-      // getFixtureSubstitutions: events then lineups.
-      .mockResolvedValueOnce(
-        jsonResponse({
-          response: [
-            {
-              time: { elapsed: 61, extra: null },
-              type: 'subst',
-              player: { id: 9001, name: 'Vangelis Pavlidis' },
-              assist: null,
-            },
-          ],
-        }),
-      )
-      .mockResolvedValueOnce(
-        jsonResponse({
-          response: [
-            {
-              team: { id: 211 },
-              startXI: [
-                { player: { id: 9001, name: 'Vangelis Pavlidis' } },
-                { player: { id: 9003, name: 'Unmatched Player' } },
-              ],
-              substitutes: [],
-            },
-          ],
-        }),
-      );
+    fixturesMock.mockResolvedValue([fixture()]);
+    appearancesMock.mockResolvedValue([
+      {
+        playerName: 'Vangelis Pavlidis',
+        playerLastName: 'Pavlidis',
+        started: false,
+        subbedOffMinute: 61,
+        minutesPlayed: 61,
+      },
+      {
+        playerName: 'Unmatched Player',
+        playerLastName: 'Player',
+        started: true,
+        subbedOffMinute: null,
+        minutesPlayed: 90,
+      },
+    ]);
 
     const { db, rows } = makeFakeDb();
     const result = await refreshUefaAppearances({
       db,
-      apiKey: 'test-key',
       ownedElements: [pavlidis, dahl],
       teams: TEAMS,
       sinceIso: '2026-09-01T00:00:00Z',
@@ -313,6 +292,7 @@ describe('refreshUefaAppearances', () => {
     expect(result.fetched).toBe(1);
     expect(result.matched).toBe(1);
     expect(result.unmatched).toEqual(['Unmatched Player']);
+    expect(appearancesMock).toHaveBeenCalledWith(fixture(), 1929);
 
     const stored = rows();
     expect(stored).toHaveLength(1);
@@ -325,20 +305,66 @@ describe('refreshUefaAppearances', () => {
     });
   });
 
-  it('never re-fetches substitutions for a fixture already fully covered', async () => {
-    fetchMock
-      .mockResolvedValueOnce(jsonResponse({ response: [] })) // UCL
-      .mockResolvedValueOnce(
-        jsonResponse({
-          response: [
-            {
-              fixture: { id: 5001, date: '2026-09-16T19:00:00+00:00', status: { short: 'FT' } },
-              teams: { home: { id: 211, name: 'SL Benfica' }, away: { id: 489, name: 'AC Milan' } },
-            },
-          ],
-        }),
-      ) // UEL
-      .mockResolvedValueOnce(jsonResponse({ response: [] })); // UECL
+  it('matches ESPN "Anatoliy Trubin" to our element via the last-name probe', async () => {
+    fixturesMock.mockResolvedValue([fixture()]);
+    appearancesMock.mockResolvedValue([
+      {
+        playerName: 'Anatoliy Trubin',
+        playerLastName: 'Trubin',
+        started: true,
+        subbedOffMinute: null,
+        minutesPlayed: 90,
+      },
+    ]);
+
+    const { db } = makeFakeDb();
+    const result = await refreshUefaAppearances({
+      db,
+      ownedElements: [trubin],
+      teams: TEAMS,
+      sinceIso: '2026-09-01T00:00:00Z',
+    });
+
+    expect(result.matched).toBe(1);
+    expect(result.unmatched).toEqual([]);
+  });
+
+  it('never matches by last name when playerLastName is null -- the wrong-player guard', async () => {
+    // ESPN sent `null` because it could not disambiguate on its side; the
+    // last name it withheld would have matched this element's `web_name`
+    // exactly. That null must never be treated as a usable last name.
+    fixturesMock.mockResolvedValue([fixture()]);
+    appearancesMock.mockResolvedValue([
+      {
+        playerName: 'Rafa Silva',
+        playerLastName: null,
+        started: true,
+        subbedOffMinute: null,
+        minutesPlayed: 90,
+      },
+    ]);
+
+    const silva = makeElement({
+      id: 103,
+      team: 2,
+      web_name: 'Silva',
+      first_name: 'Some',
+      second_name: 'One',
+    });
+    const { db } = makeFakeDb();
+    const result = await refreshUefaAppearances({
+      db,
+      ownedElements: [silva],
+      teams: TEAMS,
+      sinceIso: '2026-09-01T00:00:00Z',
+    });
+
+    expect(result.matched).toBe(0);
+    expect(result.unmatched).toEqual(['Rafa Silva']);
+  });
+
+  it('never re-fetches a covered fixture', async () => {
+    fixturesMock.mockResolvedValue([fixture()]);
 
     const { db, rows } = makeFakeDb([
       {
@@ -346,7 +372,7 @@ describe('refreshUefaAppearances', () => {
         fixture_id: 5001,
         competition: 'UEL',
         opponent: 'AC Milan',
-        kickoff_time: '2026-09-16T19:00:00+00:00',
+        kickoff_time: '2026-09-16T19:00:00Z',
         started: 1,
         subbed_off_minute: 61,
         minutes_played: 61,
@@ -357,7 +383,7 @@ describe('refreshUefaAppearances', () => {
         fixture_id: 5001,
         competition: 'UEL',
         opponent: 'AC Milan',
-        kickoff_time: '2026-09-16T19:00:00+00:00',
+        kickoff_time: '2026-09-16T19:00:00Z',
         started: 1,
         subbed_off_minute: null,
         minutes_played: 90,
@@ -367,20 +393,65 @@ describe('refreshUefaAppearances', () => {
 
     const result = await refreshUefaAppearances({
       db,
-      apiKey: 'test-key',
       ownedElements: [pavlidis, dahl],
       teams: TEAMS,
       sinceIso: '2026-09-01T00:00:00Z',
     });
 
     expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
-    // Only the 3 fixture-list calls (UCL/UEL/UECL) -- never events/lineups.
-    expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(appearancesMock).not.toHaveBeenCalled();
     expect(rows()).toHaveLength(2);
   });
 
-  it('skips a club with no API-Football mapping without error', async () => {
-    mockEmptyFixturesEverywhere();
+  it('respects MAX_SUMMARY_FETCHES_PER_RUN -- 10 uncovered fixtures produce exactly 8 summary calls', async () => {
+    const fixtures = Array.from({ length: 10 }, (_, i) => fixture({ fixtureId: 6000 + i }));
+    fixturesMock.mockResolvedValue(fixtures);
+    appearancesMock.mockResolvedValue([]);
+
+    const { db } = makeFakeDb();
+    const result = await refreshUefaAppearances({
+      db,
+      ownedElements: [pavlidis],
+      teams: TEAMS,
+      sinceIso: '2026-09-01T00:00:00Z',
+    });
+
+    expect(appearancesMock).toHaveBeenCalledTimes(8);
+    expect(result.fetched).toBe(8);
+  });
+
+  it("one club's failure does not abort the others", async () => {
+    const teams: TeamRow[] = [...TEAMS, { id: 3, code: 3, name: 'SC Braga', short_name: 'SCB' }];
+    const braga = makeElement({ id: 200, team: 3, web_name: 'Bruma' });
+
+    fixturesMock.mockImplementation(async (espnId: number) => {
+      if (espnId === 1929) throw new Error('ESPN unavailable for Benfica');
+      return [fixture({ fixtureId: 7001, opponent: 'PSV' })];
+    });
+    appearancesMock.mockResolvedValue([
+      {
+        playerName: 'Bruma',
+        playerLastName: 'Bruma',
+        started: true,
+        subbedOffMinute: null,
+        minutesPlayed: 90,
+      },
+    ]);
+
+    const { db, rows } = makeFakeDb();
+    const result = await refreshUefaAppearances({
+      db,
+      ownedElements: [pavlidis, braga],
+      teams,
+      sinceIso: '2026-09-01T00:00:00Z',
+    });
+
+    expect(result.fetched).toBe(1);
+    expect(result.matched).toBe(1);
+    expect(rows()).toHaveLength(1);
+  });
+
+  it('skips a club with no ESPN team mapping without a provider call', async () => {
     const unmappedClubElement = makeElement({ id: 200, team: 99, web_name: 'Someone' });
     const { db, rows } = makeFakeDb();
     const teamsWithUnmapped: TeamRow[] = [
@@ -390,14 +461,14 @@ describe('refreshUefaAppearances', () => {
 
     const result = await refreshUefaAppearances({
       db,
-      apiKey: 'test-key',
       ownedElements: [unmappedClubElement],
       teams: teamsWithUnmapped,
       sinceIso: '2026-09-01T00:00:00Z',
     });
 
     expect(result).toEqual({ fetched: 0, matched: 0, unmatched: [] });
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(fixturesMock).not.toHaveBeenCalled();
+    expect(appearancesMock).not.toHaveBeenCalled();
     expect(rows()).toEqual([]);
   });
 });

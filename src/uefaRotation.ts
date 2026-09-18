@@ -7,12 +7,8 @@
  * exported orchestration functions below.
  */
 
-import {
-  getFixtureSubstitutions,
-  getRecentFinishedFixturesForTeam,
-  type ApiFootballAppearance,
-} from './api/apiFootball';
-import { apiFootballTeamId } from './api/apiFootballTeams';
+import { getFixtureAppearances, getRecentFinishedFixturesForTeam } from './api/espn';
+import { espnTeamId } from './api/espnTeams';
 import {
   getUefaAppearancesForElements,
   hasUefaAppearances,
@@ -94,34 +90,38 @@ export function formatEuropeNote(appearance: {
   return `${played} vs ${appearance.opponent} (${appearance.competition})`;
 }
 
+/** Hard ceiling on summary fetches per refresh, across all clubs. Bounds the
+ * worst case against the repo's 50-subrequest budget when a backlog builds up
+ * -- after the table is cleared, or after a run of provider failures. Skipped
+ * fixtures are picked up on the next hourly tick. */
+const MAX_SUMMARY_FETCHES_PER_RUN = 8;
+
 /**
  * Refreshes `uefa_appearances` for the clubs present in the current owned
- * squad. Never throws -- any failure at any stage (missing key, a club's
- * fixture/substitution fetch failing, a D1 read/write failing) degrades to
- * "less signal this cycle", same contract as `fetchRegions`/`apiFootball.ts`
- * elsewhere in this codebase; a failure processing one club never aborts
- * the others.
+ * squad. Never throws -- any failure at any stage (a club's fixture/summary
+ * fetch failing, a D1 read/write failing) degrades to "less signal this
+ * cycle", same contract as `fetchRegions`/`espn.ts` elsewhere in this
+ * codebase; a failure processing one club never aborts the others. ESPN
+ * needs no credential, so there is no "skip entirely" branch.
  *
  * Steps, per DISTINCT club (by `short_name`) among `ownedElements` that
- * `apiFootballTeamId` resolves:
+ * `espnTeamId` resolves:
  *   1. `getRecentFinishedFixturesForTeam` since `sinceIso`.
  *   2. For each fixture NOT already fully covered (`hasUefaAppearances`) for
- *      every one of this club's owned elements, `getFixtureSubstitutions`
- *      -- so a fixture already ingested for this whole club roster is never
- *      re-fetched.
+ *      every one of this club's owned elements, `getFixtureAppearances` --
+ *      so a fixture already ingested for this whole club roster is never
+ *      re-fetched, and never once `MAX_SUMMARY_FETCHES_PER_RUN` summary
+ *      fetches have happened this run.
  *   3. Each returned appearance's `playerName` is matched via
  *      `matchElementByName` against ONLY this club's owned elements (never
  *      the whole squad -- a name match is far safer scoped to one club's
- *      handful of players than the whole 15). Unmatched names are
+ *      handful of players than the whole 15), falling back to
+ *      `playerLastName` when the full name misses. Unmatched names are
  *      collected, never guessed.
  *   4. Matched rows are upserted.
  */
 export async function refreshUefaAppearances(deps: {
   db: D1Database;
-  /** `Env.API_FOOTBALL_KEY` -- absent is normal (no key provisioned yet),
-   * not an error. Skips entirely, returning zero counts, without touching
-   * D1 or the network at all. */
-  apiKey: string | undefined;
   ownedElements: readonly Element[];
   teams: readonly TeamRow[];
   /** ISO lower bound for "recent" fixtures. Caller's choice of window --
@@ -129,10 +129,6 @@ export async function refreshUefaAppearances(deps: {
    * what it actually passes and why. */
   sinceIso: string;
 }): Promise<{ fetched: number; matched: number; unmatched: string[] }> {
-  const zero = { fetched: 0, matched: 0, unmatched: [] as string[] };
-  if (!deps.apiKey) return zero;
-  const apiKey = deps.apiKey;
-
   const teamById = new Map(deps.teams.map((t) => [t.id, t] as const));
   const elementsByClub = new Map<string, Element[]>();
   for (const element of deps.ownedElements) {
@@ -151,14 +147,15 @@ export async function refreshUefaAppearances(deps: {
   const unmatched: string[] = [];
 
   for (const [shortName, clubElements] of elementsByClub) {
-    const apiTeamId = apiFootballTeamId(shortName);
-    if (apiTeamId === undefined) continue;
+    if (fetched >= MAX_SUMMARY_FETCHES_PER_RUN) break;
+    const teamId = espnTeamId(shortName);
+    if (teamId === undefined) continue;
 
     // Each club's processing is independently best-effort: a thrown D1
     // error (or anything else unexpected) for one club must never discard
     // another club's already-accumulated results.
     try {
-      const fixtures = await getRecentFinishedFixturesForTeam(apiKey, apiTeamId, deps.sinceIso);
+      const fixtures = await getRecentFinishedFixturesForTeam(teamId, deps.sinceIso);
       if (fixtures.length === 0) continue;
 
       const elementIds = clubElements.map((e) => e.id);
@@ -169,16 +166,17 @@ export async function refreshUefaAppearances(deps: {
         const alreadyCovered = elementIds.every((id) => cached.has(`${id}:${fixture.fixtureId}`));
         if (alreadyCovered) continue;
 
+        if (fetched >= MAX_SUMMARY_FETCHES_PER_RUN) break;
         fetched++;
-        const appearances: ApiFootballAppearance[] = await getFixtureSubstitutions(
-          apiKey,
-          fixture.fixtureId,
-        );
+        const appearances = await getFixtureAppearances(fixture, teamId);
 
         const rows: UefaAppearanceRow[] = [];
         const fetchedAt = new Date().toISOString();
         for (const appearance of appearances) {
-          const elementId = matchElementByName(clubElements, appearance.playerName);
+          let elementId = matchElementByName(clubElements, appearance.playerName);
+          if (elementId === null && appearance.playerLastName) {
+            elementId = matchElementByName(clubElements, appearance.playerLastName);
+          }
           if (elementId === null) {
             unmatched.push(appearance.playerName);
             continue;
