@@ -142,6 +142,19 @@ function isPickArray(v: unknown): v is Pick[] {
   );
 }
 
+/** Same reasoning as `isPickArray`: `a.intent` for a `transfer-post` row is
+ * `unknown` off `safeParse`, which returns the raw string on malformed
+ * stored JSON, so an unguarded `.element_in` read here would throw and 500
+ * the whole dashboard. */
+function isTransferMove(v: unknown): v is TransferMove {
+  return (
+    typeof v === 'object' &&
+    v !== null &&
+    typeof (v as TransferMove).element_in === 'number' &&
+    typeof (v as TransferMove).element_out === 'number'
+  );
+}
+
 /** Collapsed-by-default sub-table of picks, split into Starting XI
  * (`position <= 11`) and Bench, per the convention documented on `Pick`
  * (src/types.ts) and preserved by `orderPicksForMyTeam`. */
@@ -194,6 +207,38 @@ export function actionDetailCell(a: ActionLogRow, elementById: Map<number, Eleme
   if (a.kind === 'lineup-post') {
     if (!isPickArray(a.intent)) return fallback;
     let body = lineupPicksTable(a.intent, elementById);
+    const hasResponse =
+      a.response !== null &&
+      a.response !== undefined &&
+      !(typeof a.response === 'object' && Object.keys(a.response).length === 0);
+    if (hasResponse) {
+      body += `<details><summary>API response</summary><pre>${escapeHtml(safeJson(a.response))}</pre></details>`;
+    }
+    return body;
+  }
+
+  if (a.kind === 'transfer-post') {
+    if (!isTransferMove(a.intent)) return fallback;
+    let body =
+      '<table><thead><tr><th>In</th><th>Out</th><th>Purchase</th><th>Selling</th></tr></thead>' +
+      `<tbody>${transferRow(a.intent, elementById)}</tbody></table>`;
+
+    // `postTransfers` returns `{}` on success, so an `error` field only ever
+    // shows up on the affordability-rejection failure path (decideCommit.ts)
+    // -- but `a.ok` is checked too so a failure with a differently-shaped
+    // response still surfaces as a failure, not a silent success table.
+    const error =
+      a.response !== null &&
+      typeof a.response === 'object' &&
+      typeof (a.response as { error?: unknown }).error === 'string'
+        ? (a.response as { error: string }).error
+        : null;
+    if (a.ok === false || error !== null) {
+      body += `<p><span class="tag err">${escapeHtml(error ?? 'failed')}</span></p>`;
+    }
+    // Shown regardless of ok/failure so a failure whose response carries more
+    // than the known `{ error }` shape still surfaces in full, not just the
+    // tag above -- a failure row must never show LESS than the old fallback.
     const hasResponse =
       a.response !== null &&
       a.response !== undefined &&

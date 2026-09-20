@@ -210,6 +210,101 @@ describe('actionDetailCell', () => {
     expect(html).toContain(escapeHtml(safeJson({ not: 'picks' })));
   });
 
+  it('transfer-post: renders in/out names and prices for a successful move, no error tag', () => {
+    const elementById = new Map<number, ElementRow>();
+    const elIn = makeElement({ web_name: 'Medrano' });
+    const elOut = makeElement({ web_name: 'Gomes' });
+    elementById.set(elIn.id, elIn);
+    elementById.set(elOut.id, elOut);
+    const move = {
+      element_in: elIn.id,
+      element_out: elOut.id,
+      purchase_price: 45,
+      selling_price: 50,
+    };
+    const action = makeAction({ kind: 'transfer-post', intent: move, response: {}, ok: true });
+
+    const html = actionDetailCell(action, elementById);
+
+    expect(html).toContain('Medrano');
+    expect(html).toContain('Gomes');
+    expect(html).toContain('>45<');
+    expect(html).toContain('>50<');
+    expect(html).not.toContain('tag err');
+    expect(html).not.toContain('API response');
+  });
+
+  it('transfer-post: shows the API response block when response is non-empty on success', () => {
+    const elementById = new Map<number, ElementRow>();
+    const elIn = makeElement();
+    const elOut = makeElement();
+    elementById.set(elIn.id, elIn);
+    elementById.set(elOut.id, elOut);
+    const move = {
+      element_in: elIn.id,
+      element_out: elOut.id,
+      purchase_price: 45,
+      selling_price: 50,
+    };
+    const action = makeAction({
+      kind: 'transfer-post',
+      intent: move,
+      response: { status: 'ok' },
+      ok: true,
+    });
+
+    const html = actionDetailCell(action, elementById);
+
+    expect(html).toContain('API response');
+  });
+
+  it('transfer-post: renders the error prominently (not only inside a collapsed block) when ok is false', () => {
+    const elementById = new Map<number, ElementRow>();
+    const elIn = makeElement();
+    const elOut = makeElement();
+    elementById.set(elIn.id, elIn);
+    elementById.set(elOut.id, elOut);
+    const move = {
+      element_in: elIn.id,
+      element_out: elOut.id,
+      purchase_price: 45,
+      selling_price: 50,
+    };
+    const action = makeAction({
+      kind: 'transfer-post',
+      intent: move,
+      response: { error: 'no longer affordable after re-reading live prices' },
+      ok: false,
+    });
+
+    const html = actionDetailCell(action, elementById);
+
+    // Prominent: a visible tag, not buried inside <details><summary>.
+    expect(html).toMatch(
+      /<span class="tag err">no longer affordable after re-reading live prices<\/span>/,
+    );
+    // The full response is still preserved in the collapsed block -- a
+    // failure row must never show LESS than the old `{}` fallback did.
+    expect(html).toContain('API response');
+  });
+
+  it.each([['not even an object' as unknown], [{ not: 'a move' } as unknown]])(
+    'transfer-post: falls back to a <pre> block for malformed intent %j',
+    (badIntent) => {
+      const elementById = new Map<number, ElementRow>();
+      // `response: null` (not `{}`) so the fallback's `a.response ?? a.intent`
+      // is forced onto `a.intent` -- proving the guard routed to the
+      // fallback with the payload intact, not just that some `<pre>` exists.
+      const action = makeAction({ kind: 'transfer-post', intent: badIntent, response: null });
+
+      expect(() => actionDetailCell(action, elementById)).not.toThrow();
+      const html = actionDetailCell(action, elementById);
+
+      expect(html).toContain('<pre>');
+      expect(html).toContain(escapeHtml(safeJson(badIntent)));
+    },
+  );
+
   it('renders any other kind byte-identical to the old fallback expression', () => {
     const elementById = new Map<number, ElementRow>();
     const action = makeAction({
