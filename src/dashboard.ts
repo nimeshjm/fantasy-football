@@ -186,10 +186,20 @@ function lineupPicksTable(picks: Pick[], elementById: Map<number, ElementRow>): 
   );
 }
 
+/** True when a logged payload carries information. Success paths that return
+ * no body store `{}`, `[]` or `""`, so those must count as absent. */
+function hasContent(v: unknown): boolean {
+  if (v === null || v === undefined) return false;
+  if (typeof v === 'string') return v.length > 0;
+  if (Array.isArray(v)) return v.length > 0;
+  if (typeof v === 'object') return Object.keys(v).length > 0;
+  return true;
+}
+
 /** Inner HTML of the "Detail" cell -- exported so it can be unit-tested
  * directly, since `GET /` itself needs a live D1 binding. */
 export function actionDetailCell(a: ActionLogRow, elementById: Map<number, ElementRow>): string {
-  const fallback = `<pre>${escapeHtml(safeJson(a.response ?? a.intent))}</pre>`;
+  const fallback = `<pre>${escapeHtml(safeJson(hasContent(a.response) ? a.response : a.intent))}</pre>`;
 
   if (a.kind === 'lineup-recheck') {
     const decision = parseDecision(a.intent);
@@ -207,11 +217,7 @@ export function actionDetailCell(a: ActionLogRow, elementById: Map<number, Eleme
   if (a.kind === 'lineup-post') {
     if (!isPickArray(a.intent)) return fallback;
     let body = lineupPicksTable(a.intent, elementById);
-    const hasResponse =
-      a.response !== null &&
-      a.response !== undefined &&
-      !(typeof a.response === 'object' && Object.keys(a.response).length === 0);
-    if (hasResponse) {
+    if (hasContent(a.response)) {
       body += `<details><summary>API response</summary><pre>${escapeHtml(safeJson(a.response))}</pre></details>`;
     }
     return body;
@@ -239,11 +245,7 @@ export function actionDetailCell(a: ActionLogRow, elementById: Map<number, Eleme
     // Shown regardless of ok/failure so a failure whose response carries more
     // than the known `{ error }` shape still surfaces in full, not just the
     // tag above -- a failure row must never show LESS than the old fallback.
-    const hasResponse =
-      a.response !== null &&
-      a.response !== undefined &&
-      !(typeof a.response === 'object' && Object.keys(a.response).length === 0);
-    if (hasResponse) {
+    if (hasContent(a.response)) {
       body += `<details><summary>API response</summary><pre>${escapeHtml(safeJson(a.response))}</pre></details>`;
     }
     return body;
