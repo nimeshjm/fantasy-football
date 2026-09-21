@@ -244,7 +244,7 @@ export function actionDetailCell(a: ActionLogRow, elementById: Map<number, Eleme
     }
     // Shown regardless of ok/failure so a failure whose response carries more
     // than the known `{ error }` shape still surfaces in full, not just the
-    // tag above -- a failure row must never show LESS than the old fallback.
+    // tag above. An empty response carries nothing, so it is not shown.
     if (hasContent(a.response)) {
       body += `<details><summary>API response</summary><pre>${escapeHtml(safeJson(a.response))}</pre></details>`;
     }
