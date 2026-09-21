@@ -94,26 +94,126 @@ describe('matchElementByName', () => {
 // ---------------------------------------------------------------------------
 
 describe('formatEuropeNote', () => {
-  it('formats a subbed-off appearance', () => {
+  // Fixed "now" so rest-day math is deterministic across every case below.
+  const now = new Date('2026-09-20T12:00:00Z');
+
+  it('formats a starter who played the whole match', () => {
+    // now (12:00) minus exactly 3 days -- a clean day boundary so the
+    // floor()'d rest-day count is unambiguous.
+    const threeDaysAgo = new Date(now.getTime() - 3 * 86_400_000).toISOString();
     expect(
-      formatEuropeNote({
-        competition: 'UEL',
-        opponent: 'Milan',
-        subbedOffMinute: 61,
-        minutesPlayed: 61,
-      }),
-    ).toBe("subbed 61' vs Milan (UEL)");
+      formatEuropeNote(
+        {
+          competition: 'UCL',
+          opponent: 'Manchester City',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+          kickoffTime: threeDaysAgo,
+        },
+        now,
+      ),
+    ).toBe("started 90' vs Manchester City (UCL, 3d)");
   });
 
-  it('formats a full-match appearance', () => {
+  it('formats a starter hooked early -- distinct wording from an ordinary sub', () => {
+    const fourDaysAgo = new Date(now.getTime() - 4 * 86_400_000).toISOString();
     expect(
-      formatEuropeNote({
-        competition: 'UEL',
-        opponent: 'Milan',
-        subbedOffMinute: null,
-        minutesPlayed: 90,
-      }),
-    ).toBe("played 90' vs Milan (UEL)");
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: true,
+          subbedOffMinute: 58,
+          minutesPlayed: 58,
+          kickoffTime: fourDaysAgo,
+        },
+        now,
+      ),
+    ).toBe("hooked 58' vs AC Milan (UEL, 4d)");
+  });
+
+  it('formats a substitute appearance', () => {
+    expect(
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: false,
+          subbedOffMinute: null,
+          minutesPlayed: 10,
+          kickoffTime: '2026-09-20T12:00:00Z',
+        },
+        now,
+      ),
+    ).toBe("sub 10' vs AC Milan (UEL, 0d)");
+  });
+
+  it('renders exactly at the EUROPE_NOTE_MAX_REST_DAYS threshold', () => {
+    const sevenDaysAgo = new Date(now.getTime() - 7 * 86_400_000).toISOString();
+    expect(
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+          kickoffTime: sevenDaysAgo,
+        },
+        now,
+      ),
+    ).toBe("started 90' vs AC Milan (UEL, 7d)");
+  });
+
+  it('returns null just past the EUROPE_NOTE_MAX_REST_DAYS threshold', () => {
+    const eightDaysAgo = new Date(now.getTime() - 8 * 86_400_000).toISOString();
+    expect(
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+          kickoffTime: eightDaysAgo,
+        },
+        now,
+      ),
+    ).toBeNull();
+  });
+
+  it('clamps a future kickoff (or clock skew) to 0d rather than a negative value', () => {
+    const inTheFuture = new Date(now.getTime() + 86_400_000).toISOString();
+    expect(
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+          kickoffTime: inTheFuture,
+        },
+        now,
+      ),
+    ).toBe("started 90' vs AC Milan (UEL, 0d)");
+  });
+
+  it('returns null for an unparseable kickoffTime rather than rendering NaNd', () => {
+    expect(
+      formatEuropeNote(
+        {
+          competition: 'UEL',
+          opponent: 'AC Milan',
+          started: true,
+          subbedOffMinute: null,
+          minutesPlayed: 90,
+          kickoffTime: 'not-a-date',
+        },
+        now,
+      ),
+    ).toBeNull();
   });
 });
 
@@ -478,7 +578,43 @@ describe('refreshUefaAppearances', () => {
 // ---------------------------------------------------------------------------
 
 describe('buildEuropeNotes', () => {
+  const now = new Date('2026-09-20T12:00:00Z');
+
   it('keeps only the most recent appearance per element', async () => {
+    const { db } = makeFakeDb([
+      {
+        element_id: 1,
+        fixture_id: 100,
+        competition: 'UEL',
+        opponent: 'Older Opponent',
+        kickoff_time: '2026-09-16T19:00:00Z',
+        started: 1,
+        subbed_off_minute: null,
+        minutes_played: 90,
+        fetched_at: '2026-09-16T21:00:00Z',
+      },
+      {
+        element_id: 1,
+        fixture_id: 101,
+        competition: 'UEL',
+        opponent: 'Milan',
+        kickoff_time: '2026-09-19T19:00:00Z',
+        started: 1,
+        subbed_off_minute: 61,
+        minutes_played: 61,
+        fetched_at: '2026-09-19T21:00:00Z',
+      },
+    ]);
+
+    const notes = await buildEuropeNotes(db, [1], now);
+    expect(notes.get(1)).toBe("hooked 61' vs Milan (UEL, 0d)");
+  });
+
+  it('gives no note at all when the most recent appearance is too old, even with an older one also present', async () => {
+    // The trap this guards: naively falling through to the next row for
+    // the same element when formatEuropeNote(mostRecent) is null would
+    // surface the OLDER row instead -- which is even further past the
+    // threshold, and exactly the stale signal issue #69 removes.
     const { db } = makeFakeDb([
       {
         element_id: 1,
@@ -496,21 +632,22 @@ describe('buildEuropeNotes', () => {
         fixture_id: 101,
         competition: 'UEL',
         opponent: 'Milan',
-        kickoff_time: '2026-09-16T19:00:00Z',
+        kickoff_time: '2026-09-10T19:00:00Z', // 10 days before `now` -- past the 7-day threshold
         started: 1,
         subbed_off_minute: 61,
         minutes_played: 61,
-        fetched_at: '2026-09-16T21:00:00Z',
+        fetched_at: '2026-09-10T21:00:00Z',
       },
     ]);
 
-    const notes = await buildEuropeNotes(db, [1]);
-    expect(notes.get(1)).toBe("subbed 61' vs Milan (UEL)");
+    const notes = await buildEuropeNotes(db, [1], now);
+    expect(notes.has(1)).toBe(false);
+    expect(notes.size).toBe(0);
   });
 
   it('returns an empty map for element ids with no stored appearances', async () => {
     const { db } = makeFakeDb();
-    const notes = await buildEuropeNotes(db, [999]);
+    const notes = await buildEuropeNotes(db, [999], now);
     expect(notes.size).toBe(0);
   });
 
@@ -521,7 +658,26 @@ describe('buildEuropeNotes', () => {
       },
     } as unknown as D1Database;
 
-    const notes = await buildEuropeNotes(throwingDb, [1]);
+    const notes = await buildEuropeNotes(throwingDb, [1], now);
     expect(notes.size).toBe(0);
+  });
+
+  it('defaults `now` to the current time so the two-argument call site keeps working', async () => {
+    const { db } = makeFakeDb([
+      {
+        element_id: 1,
+        fixture_id: 100,
+        competition: 'UEL',
+        opponent: 'Milan',
+        kickoff_time: new Date().toISOString(),
+        started: 1,
+        subbed_off_minute: null,
+        minutes_played: 90,
+        fetched_at: new Date().toISOString(),
+      },
+    ]);
+
+    const notes = await buildEuropeNotes(db, [1]);
+    expect(notes.get(1)).toBe("started 90' vs Milan (UEL, 0d)");
   });
 });

@@ -57,6 +57,23 @@
  * result back via `DecisionCoreDeps.getEuropeNotes` (`buildEuropeNotes`,
  * src/uefaRotation.ts), the same "persist small, re-read via the deps
  * callback" shape `project`/`getProjectionsForEvent` already establish.
+ *
+ * ## Opponent-visibility notes (issue #69)
+ *
+ * `project` already loads `ratings`/`fixturesByTeam` for `model-v2` (see
+ * above) -- reading them AGAIN inside `decide-and-commit` just to build the
+ * `opp:` note would re-add exactly the D1-read cost the `project` step was
+ * split out to avoid. So `buildOpponentNotesByTeam` (src/opponentNote.ts)
+ * runs at the end of the `project` step instead, and its result is carried
+ * across the step boundary the same way `blankFixturesForEvent` is: as a
+ * small plain value on `project`'s return (`step.do` results are JSON-
+ * serialized, so the `Map` it builds internally has to be converted to a
+ * plain `Record<string, string>` for the trip and rebuilt into a `Map` on
+ * the other side). Keyed by TEAM id, not element id -- there are ~18 teams
+ * against ~656 elements, and every element's team is already known in
+ * `decide-and-commit` (`element.team`), so keying by team id keeps this
+ * carried payload two orders of magnitude smaller than keying by element
+ * id would, for the same information.
  */
 
 import { sendOpsAlert } from '../alert';
@@ -119,6 +136,7 @@ import type { RatingsModel } from '../model/ratings';
 import { buildShortlist, ShortlistInvariantError } from '../shortlist';
 import { makeLineupBaseline, makeSquadBaseline, makeTransferBaseline } from '../baseline';
 import { buildEuropeNotes, refreshUefaAppearances } from '../uefaRotation';
+import { buildOpponentNotesByTeam } from '../opponentNote';
 import { createSessionStore } from '../sessionStore';
 import {
   parseConfig,
@@ -231,13 +249,21 @@ function describeTeamChange(
  * candidate/transfer-candidate pool -- see the call sites in
  * `runSquadCreation`/`runTransferAndLineup`/`runLineupOnly` for which is
  * which), it sets `ShortlistEntry.europeNote` for any id it covers and
- * leaves it `undefined` otherwise, same convention as a missing `news`. */
+ * leaves it `undefined` otherwise, same convention as a missing `news`.
+ *
+ * `opponentNotesByTeam` (issue #69) is optional too, but keyed by TEAM id
+ * (`element.team`), not element id -- see `DecisionCoreDeps.opponentNotesByTeam`'s
+ * doc comment for why. Unlike `europeNotes`, it's passed at every call site
+ * below (owned squad AND the wider shortlist/candidate pool): fixture
+ * visibility is useful everywhere `xpts` is shown, not just for the
+ * currently-owned 15. */
 export function buildShortlistEntries(
   elementIds: readonly number[],
   elements: readonly Element[],
   projections: readonly Projection[],
   teams: readonly TeamRow[],
   europeNotes?: ReadonlyMap<number, string>,
+  opponentNotesByTeam?: ReadonlyMap<number, string>,
 ): ShortlistEntry[] {
   const elementById = new Map(elements.map((e) => [e.id, e] as const));
   const xptsById = new Map(projections.map((p) => [p.element_id, p.xpts] as const));
@@ -250,6 +276,7 @@ export function buildShortlistEntries(
       clubShortName: teamShortName(teams, element.team),
       xpts: xptsById.get(id) ?? 0,
       europeNote: europeNotes?.get(id),
+      opponentNote: opponentNotesByTeam?.get(element.team),
     });
   }
   return entries;
@@ -451,6 +478,21 @@ export interface DecisionCoreDeps {
    */
   getEuropeNotes: (elementIds: readonly number[]) => Promise<Map<number, string>>;
 
+  /**
+   * Opponent-visibility notes (issue #69), keyed by TEAM id -- built once by
+   * `buildOpponentNotesByTeam` (src/opponentNote.ts) inside the `project`
+   * step and carried across the step boundary as a plain object, then
+   * rebuilt into this `Map` before `DecisionCoreDeps` is constructed. See
+   * the "Opponent-visibility notes" section of this file's module doc for
+   * why it's keyed by team id and built where it is.
+   *
+   * Optional: absent or empty means the active projection strategy loaded
+   * no ratings/fixtures (`ep-next`, per `buildOpponentNotesByTeam`'s own
+   * doc), which degrades to "no `opp` column" in every prompt this decision
+   * builds -- never a blocked decision, same contract as `getEuropeNotes`.
+   */
+  opponentNotesByTeam?: ReadonlyMap<number, string>;
+
   logAction: (input: ActionLogInput) => Promise<void>;
   /** Returns the inserted `ai_calls` row id -- `updateAiCallGate` stamps the
    * gate's verdict onto that same row once the gate has run. */
@@ -519,6 +561,8 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
     deps.elements,
     deps.projections,
     deps.teams,
+    undefined,
+    deps.opponentNotesByTeam,
   );
   const squadBaseline = makeSquadBaseline(
     deps.elements,
@@ -549,6 +593,7 @@ async function runSquadCreation(deps: DecisionCoreDeps): Promise<DecisionCoreRes
     deps.projections,
     deps.teams,
     europeNotes,
+    deps.opponentNotesByTeam,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -754,6 +799,7 @@ async function runTransferAndLineup(
       deps.projections,
       deps.teams,
       squadEuropeNotes,
+      deps.opponentNotesByTeam,
     );
     const candidateInputs = candidates
       .map((c) => {
@@ -764,12 +810,16 @@ async function runTransferAndLineup(
           deps.elements,
           deps.projections,
           deps.teams,
+          undefined,
+          deps.opponentNotesByTeam,
         );
         const [outEntry] = buildShortlistEntries(
           [move.element_out],
           deps.elements,
           deps.projections,
           deps.teams,
+          undefined,
+          deps.opponentNotesByTeam,
         );
         if (!inEntry || !outEntry) return null;
         return { elementIn: inEntry, elementOut: outEntry, move, gain: c.gain };
@@ -809,6 +859,7 @@ async function runTransferAndLineup(
     deps.projections,
     deps.teams,
     ownedEuropeNotes,
+    deps.opponentNotesByTeam,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -978,6 +1029,7 @@ async function runLineupOnly(
     deps.projections,
     deps.teams,
     europeNotes,
+    deps.opponentNotesByTeam,
   );
   const lineupDecision = await decideLineup({
     audit: makeAuditSink(deps),
@@ -1359,6 +1411,12 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
     // strategy is active.
     const projectResult = await step.do('project', async () => {
       const elements = await getAllElements(env.DB);
+      // Read here too (decide-and-commit also reads it, separately -- see
+      // that step's own comment on why projections aren't threaded through
+      // the step boundary) purely so `buildOpponentNotesByTeam` below has a
+      // team list to iterate; a cheap, already-elsewhere-paid-for D1 read,
+      // not the kind of cost the CPU-budget doc comment above is about.
+      const teams = await getTeams(env.DB);
       const strategy = await getProjectionStrategy(env.DB);
 
       let ratings: RatingsModel | undefined;
@@ -1422,20 +1480,31 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       });
       await upsertProjections(env.DB, projections, nowIso());
 
+      // Opponent-visibility notes (issue #69): built here, where `ratings`/
+      // `fixturesByTeam` already sit in memory from the `model-v2` branch
+      // above (or are both `undefined` under `ep-next`, which
+      // `buildOpponentNotesByTeam` turns into an empty map -- see its own
+      // doc comment). `step.do`'s return value is JSON-serialized, so the
+      // `Map` this returns gets flattened to a plain object for the trip
+      // across the step boundary and rebuilt into a `Map` just below.
+      const opponentNotesByTeam = buildOpponentNotesByTeam(teams, fixturesByTeam, ratings);
+
       // Never return the projections themselves -- step.do's return value
       // is serialized into workflow instance storage, and 656 rows of
       // { element_id, event, xmins, xpts } per attempt is exactly the kind
       // of payload that belongs in D1 (already the source of truth here),
       // not duplicated into workflow state. `decide-and-commit` reads them
       // straight back out below. `blankFixturesForEvent` (a single boolean)
-      // is the one thing from this step `decide-and-commit` cannot re-derive
-      // from D1 alone without re-running the same strategy/fixtures reads --
+      // and `opponentNotesByTeam` (at most ~18 short strings) are the things
+      // from this step `decide-and-commit` cannot re-derive from D1 alone
+      // without re-running the same strategy/fixtures/ratings reads --
       // small enough to carry across the step boundary directly.
       return {
         strategy,
         projected: projections.length,
         teamsRated: ratings?.ratings.size ?? 0,
         blankFixturesForEvent,
+        opponentNotesByTeam: Object.fromEntries(opponentNotesByTeam),
       };
     });
 
@@ -1452,6 +1521,24 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
       // `ProjectionRow extends Projection`, so this satisfies
       // `DecisionCoreDeps.projections` without any adaptation.
       const projections = await getProjectionsForEvent(env.DB, eventId);
+
+      // `project`'s return value was JSON-serialized (`step.do` storage), so
+      // the `Map` `buildOpponentNotesByTeam` built there came back as a
+      // plain object -- rebuilt into a `Map<number, string>` here, same
+      // "carry small, rebuild on the other side" shape as
+      // `blankFixturesForEvent` just below, just with an extra flatten/
+      // unflatten step because a `Map` itself can't survive the boundary.
+      // `?? {}` guards a Workflow instance resuming after a deploy that adds
+      // this field: its `project` step may already be persisted from BEFORE
+      // this field existed, in which case a replay of that step's stored
+      // return has no `opponentNotesByTeam` key at all -- `Object.entries`
+      // must not throw on that, it must degrade to "no opp column", exactly
+      // like this field being `undefined` does everywhere else.
+      const opponentNotesByTeam = new Map(
+        Object.entries(projectResult.opponentNotesByTeam ?? {}).map(
+          ([teamId, note]) => [Number(teamId), note] as const,
+        ),
+      );
 
       const provider = selectProvider(env);
       const neuronBudget = createNeuronBudget(
@@ -1480,6 +1567,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
         provider,
         neuronBudget,
         blankFixturesForEvent: projectResult.blankFixturesForEvent,
+        opponentNotesByTeam,
         sendOpsAlert: (summary, fields) => sendOpsAlert(env, summary, fields),
         reloadLivePrices: async () => {
           if (!loaded.existingSquad) return null;

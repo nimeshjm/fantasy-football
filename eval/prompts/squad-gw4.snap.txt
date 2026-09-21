@@ -1,73 +1,73 @@
 ### case: squad-gw4
 ### system
-You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. An "europe" field is a note on that player's most recent Champions/Europa/Conference League appearance (also not reflected in xpts) - a player subbed off early there carries more fatigue/rotation risk than one who played 90. Respond using the JSON schema only: one list of ids per position, and one short reason.
+You pick a 15-player squad for a Fantasy Liga Portugal (Betclic) team. Budget <= EUR100.0m total. Squad is exactly 15: 2 GK, 5 DEF, 5 MID, 3 FWD. Max 3 players from the same club. Maximise total expected points (xpts) for the squad subject to those constraints. A player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat an active injury or suspension as a strong reason to avoid that player. An "europe" field is a note on that player's most recent Champions/Europa/Conference League appearance (also not reflected in xpts): it gives whether they started, their minutes, and days of rest since. Fatigue rises with minutes and falls with rest days, so a starter who finished 90' on 2 days rest is the tired one and a substitute who played 10' is not. Separately, a starter hooked well before the end can mean a knock or a managed load - that is selection risk, not fatigue. An "opp" field names the club that player faces next. It gives that opponent's attack and concede factors, both centred on 1.0: above 1.0 is more goals than average, below 1.0 is fewer. "no fixture" means a blank gameweek. xpts ALREADY prices this fixture, so never discount a player twice for a hard opponent - use "opp" to judge ceiling, variance and captaincy, and to question an xpts that looks wrong. Respond using the JSON schema only: one list of ids per position, and one short reason.
 ### user
 Candidates are grouped by position. Each group below fills the answer list of the same name, and the schema fixes how many ids that list holds.
 
 ## GK - choose exactly 2 of these 8, into "gk"
-id|name|pos|club|cost|xpts|form|mins|news?
-27|Ewerton|GK|AVFC|4.0|3.4|2.5|360
-80|Marin|GK|CDN|4.5|3.7|5.0|360
-168|Matheus Mendes|GK|ALV|4.0|3.4|2.0|360
-242|Diogo Costa|GK|FCP|6.6|3.6|6.5|360
-299|Lucão|GK|GVFC|4.5|3.3|6.3|270
-355|Ennio van der Gouw|GK|RAFC|5.0|3.9|4.2|360
-383|Alfonso Pastor|GK|CSM|4.5|3.6|4.2|360
-653|Kaique|GK|SCP|5.5|3.3|0.0|0
+id|name|pos|club|cost|xpts|form|mins|opp?|news?
+27|Ewerton|GK|AVFC|4.0|3.4|2.5|360|opp:vs FCP (H) att1.10 concede0.73
+80|Marin|GK|CDN|4.5|3.7|5.0|360|opp:vs CFEA (H) att1.05 concede1.05
+168|Matheus Mendes|GK|ALV|4.0|3.4|2.0|360|opp:vs CDSC (H) att0.97 concede0.86
+242|Diogo Costa|GK|FCP|6.6|3.6|6.5|360|opp:vs AVFC (A) att1.00 concede0.99
+299|Lucão|GK|GVFC|4.5|3.3|6.3|270|opp:vs FCF (A) att0.86 concede0.98
+355|Ennio van der Gouw|GK|RAFC|5.0|3.9|4.2|360|opp:vs SCP (H) att1.18 concede1.05
+383|Alfonso Pastor|GK|CSM|4.5|3.6|4.2|360|opp:vs FCA (A) att1.05 concede0.85
+653|Kaique|GK|SCP|5.5|3.3|0.0|0|opp:vs RAFC (A) att0.87 concede0.91
 
 ## DEF - choose exactly 5 of these 20, into "def"
-id|name|pos|club|cost|xpts|form|mins|news?
-2|Anthony Correia|DEF|AVFC|4.5|2.5|2.0|360
-13|Robinho|DEF|AVFC|4.5|2.8|3.0|360
-62|Léo Santos|DEF|CDN|4.6|4.4|6.0|360
-64|Zé Vítor|DEF|CDN|5.1|3.8|5.8|360
-146|Rafa Soares|DEF|CFEA|5.0|3.3|3.3|269
-150|Isaac James|DEF|ALV|4.5|2.9|3.0|344
-187|Fontán|DEF|FCA|5.2|4.1|7.0|360
-217|Pedro Bondo|DEF|FCF|4.5|2.6|2.8|296
-238|van Breemen|DEF|FCF|4.5|3.2|5.2|360
-269|Kiwior|DEF|FCP|6.1|3.0|6.8|360
-301|Weverson|DEF|GVFC|4.5|3.1|4.7|198
-308|Leandro Santos|DEF|MFC|4.5|2.5|0.7|187
-363|Paulo Henrique|DEF|CSM|4.5|3.1|4.0|360
-389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354
-393|Pedro Pacheco|DEF|CDSC|4.0|2.6|4.5|360
-519|E. Quaresma|DEF|SCP|5.4|2.3|1.0|195
-565|Lebedenko|DEF|FCA|4.5|3.3|3.0|295
-566|Thiago Balieiro|DEF|VSC|4.5|2.2|3.0|360
-576|Tony Strata|DEF|VSC|5.0|2.7|3.8|246
-656|Samuel Amissah|DEF|EPF|4.0|1.5|0.0|0
+id|name|pos|club|cost|xpts|form|mins|opp?|news?
+2|Anthony Correia|DEF|AVFC|4.5|2.5|2.0|360|opp:vs FCP (H) att1.10 concede0.73
+13|Robinho|DEF|AVFC|4.5|2.8|3.0|360|opp:vs FCP (H) att1.10 concede0.73
+62|Léo Santos|DEF|CDN|4.6|4.4|6.0|360|opp:vs CFEA (H) att1.05 concede1.05
+64|Zé Vítor|DEF|CDN|5.1|3.8|5.8|360|opp:vs CFEA (H) att1.05 concede1.05
+146|Rafa Soares|DEF|CFEA|5.0|3.3|3.3|269|opp:vs CDN (A) att0.98 concede0.92
+150|Isaac James|DEF|ALV|4.5|2.9|3.0|344|opp:vs CDSC (H) att0.97 concede0.86
+187|Fontán|DEF|FCA|5.2|4.1|7.0|360|opp:vs CSM (H) att1.00 concede0.94
+217|Pedro Bondo|DEF|FCF|4.5|2.6|2.8|296|opp:vs GVFC (H) att0.97 concede0.80
+238|van Breemen|DEF|FCF|4.5|3.2|5.2|360|opp:vs GVFC (H) att0.97 concede0.80
+269|Kiwior|DEF|FCP|6.1|3.0|6.8|360|opp:vs AVFC (A) att1.00 concede0.99
+301|Weverson|DEF|GVFC|4.5|3.1|4.7|198|opp:vs FCF (A) att0.86 concede0.98
+308|Leandro Santos|DEF|MFC|4.5|2.5|0.7|187|opp:vs CPAC (A) att0.73 concede1.27
+363|Paulo Henrique|DEF|CSM|4.5|3.1|4.0|360|opp:vs FCA (A) att1.05 concede0.85
+389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354|opp:vs ALV (A) att0.92 concede1.10
+393|Pedro Pacheco|DEF|CDSC|4.0|2.6|4.5|360|opp:vs ALV (A) att0.92 concede1.10
+519|E. Quaresma|DEF|SCP|5.4|2.3|1.0|195|opp:vs RAFC (A) att0.87 concede0.91
+565|Lebedenko|DEF|FCA|4.5|3.3|3.0|295|opp:vs CSM (H) att1.00 concede0.94
+566|Thiago Balieiro|DEF|VSC|4.5|2.2|3.0|360|opp:vs SCB (A) att1.02 concede1.04
+576|Tony Strata|DEF|VSC|5.0|2.7|3.8|246|opp:vs SCB (A) att1.02 concede1.04
+656|Samuel Amissah|DEF|EPF|4.0|1.5|0.0|0|opp:vs SLB (A) att1.33 concede0.96
 
 ## MID - choose exactly 5 of these 17, into "mid"
-id|name|pos|club|cost|xpts|form|mins|news?
-94|Guitane|MID|EPF|6.0|2.3|3.0|235
-95|João Carvalho|MID|EPF|7.0|2.3|3.0|360
-126|Abraham Marcus|MID|CFEA|6.0|3.5|6.7|268
-200|Naïs Djouahra|MID|FCA|6.2|4.1|5.8|356
-264|Gabri Veiga|MID|FCP|8.3|4.9|9.5|308
-291|Gil Martins|MID|GVFC|4.5|3.3|5.0|229
-323|Nile John|MID|MFC|4.5|3.3|3.3|228
-348|Tamás Nikitscher|MID|RAFC|4.4|2.4|2.2|293
-380|Raphael Guzzo|MID|CSM|4.6|2.7|4.5|328
-436|Prestianni|MID|SLB|8.2|7.4|8.7|250
-458|Rafa Silva|MID|SLB|10.0|5.4|5.0|195
-486|Vitor Carvalho|MID|SCB|5.5|3.5|5.5|180
-527|Geny Catamo|MID|SCP|8.6|4.1|7.2|273
-592|Ian Luccas|MID|ALV|4.5|3.0|3.5|291
-614|António Gil|MID|SCB|4.5|2.9|0.0|0
-649|Pauwels|MID|CPAC|4.5|2.7|2.0|12
-651|Antoine Wenck|MID|RAFC|4.5|2.8|1.0|16
+id|name|pos|club|cost|xpts|form|mins|opp?|news?
+94|Guitane|MID|EPF|6.0|2.3|3.0|235|opp:vs SLB (A) att1.33 concede0.96
+95|João Carvalho|MID|EPF|7.0|2.3|3.0|360|opp:vs SLB (A) att1.33 concede0.96
+126|Abraham Marcus|MID|CFEA|6.0|3.5|6.7|268|opp:vs CDN (A) att0.98 concede0.92
+200|Naïs Djouahra|MID|FCA|6.2|4.1|5.8|356|opp:vs CSM (H) att1.00 concede0.94
+264|Gabri Veiga|MID|FCP|8.3|4.9|9.5|308|opp:vs AVFC (A) att1.00 concede0.99
+291|Gil Martins|MID|GVFC|4.5|3.3|5.0|229|opp:vs FCF (A) att0.86 concede0.98
+323|Nile John|MID|MFC|4.5|3.3|3.3|228|opp:vs CPAC (A) att0.73 concede1.27
+348|Tamás Nikitscher|MID|RAFC|4.4|2.4|2.2|293|opp:vs SCP (H) att1.18 concede1.05
+380|Raphael Guzzo|MID|CSM|4.6|2.7|4.5|328|opp:vs FCA (A) att1.05 concede0.85
+436|Prestianni|MID|SLB|8.2|7.4|8.7|250|opp:vs EPF (H) att0.79 concede1.07
+458|Rafa Silva|MID|SLB|10.0|5.4|5.0|195|opp:vs EPF (H) att0.79 concede1.07
+486|Vitor Carvalho|MID|SCB|5.5|3.5|5.5|180|opp:vs VSC (H) att0.92 concede0.96
+527|Geny Catamo|MID|SCP|8.6|4.1|7.2|273|opp:vs RAFC (A) att0.87 concede0.91
+592|Ian Luccas|MID|ALV|4.5|3.0|3.5|291|opp:vs CDSC (H) att0.97 concede0.86
+614|António Gil|MID|SCB|4.5|2.9|0.0|0|opp:vs VSC (H) att0.92 concede0.96
+649|Pauwels|MID|CPAC|4.5|2.7|2.0|12|opp:vs MFC (H) att0.94 concede1.18
+651|Antoine Wenck|MID|RAFC|4.5|2.8|1.0|16|opp:vs SCP (H) att1.18 concede1.05
 
 ## FWD - choose exactly 3 of these 9, into "fwd"
-id|name|pos|club|cost|xpts|form|mins|news?
-57|Henrique Araújo|FWD|CPAC|5.4|2.8|2.0|237
-131|Leandro Antonetti|FWD|CFEA|4.5|4.5|6.3|265
-241|Koutsias|FWD|FCF|6.0|3.1|3.0|328
-327|Duville-Parsemain|FWD|MFC|6.0|3.9|3.3|270
-405|Gonçalo Paciência|FWD|CDSC|5.8|6.0|7.2|295
-442|Pavlidis|FWD|SLB|12.1|10.7|11.0|227
-487|Navarro|FWD|SCB|7.5|4.6|3.5|94
-574|Ndoye|FWD|VSC|6.5|3.4|3.2|333
-654|Evans Maurin|FWD|CPAC|4.5|3.5|0.0|0
+id|name|pos|club|cost|xpts|form|mins|opp?|news?
+57|Henrique Araújo|FWD|CPAC|5.4|2.8|2.0|237|opp:vs MFC (H) att0.94 concede1.18
+131|Leandro Antonetti|FWD|CFEA|4.5|4.5|6.3|265|opp:vs CDN (A) att0.98 concede0.92
+241|Koutsias|FWD|FCF|6.0|3.1|3.0|328|opp:vs GVFC (H) att0.97 concede0.80
+327|Duville-Parsemain|FWD|MFC|6.0|3.9|3.3|270|opp:vs CPAC (A) att0.73 concede1.27
+405|Gonçalo Paciência|FWD|CDSC|5.8|6.0|7.2|295|opp:vs ALV (A) att0.92 concede1.10
+442|Pavlidis|FWD|SLB|12.1|10.7|11.0|227|opp:vs EPF (H) att0.79 concede1.07
+487|Navarro|FWD|SCB|7.5|4.6|3.5|94|opp:vs VSC (H) att0.92 concede0.96
+574|Ndoye|FWD|VSC|6.5|3.4|3.2|333|opp:vs SCB (A) att1.02 concede1.04
+654|Evans Maurin|FWD|CPAC|4.5|3.5|0.0|0|opp:vs MFC (H) att0.94 concede1.18
 
 Put each id in the list for its own group. The two constraints the schema cannot express, and the only ones left to check: at most 3 ids sharing a club across all four lists, and total cost of the 15 at most EUR100.0m.

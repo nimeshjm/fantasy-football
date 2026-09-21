@@ -2,10 +2,15 @@
  * Compact, token-efficient prompt builders for the three LLM decisions.
  *
  * One line per player, ~35 tokens: id, name, position, club, cost, baseline
- * xPts, form, minutes, and - the one signal a numeric model cannot read -
- * the raw Portuguese `news` text whenever it is non-empty. That injury/
- * suspension free text is the main reason this project asks an LLM anything
- * at all, so it is never truncated or summarised away.
+ * xPts, form, minutes, then up to three labelled optional fields - `opp`,
+ * `news` and `europe`. The raw Portuguese `news` text is the one signal a
+ * numeric model cannot read. That injury/suspension free text is the main
+ * reason this project asks an LLM anything at all, so it is never truncated
+ * or summarised away.
+ *
+ * The optional fields are labelled rather than positional (issue #69), so a
+ * line that carries `news` but no `opp` still parses unambiguously. Do not
+ * convert them into fixed columns.
  */
 
 import { Position, RULES, type Element } from '../types';
@@ -137,11 +142,20 @@ export interface ShortlistEntry {
   clubShortName: string;
   /** Deterministic baseline expected points for the next event. */
   xpts: number;
-  /** UEFA rotation-risk note (issue #51), e.g. "subbed 61' vs Milan (UEL)" or
-   * "played 90' vs Milan (UEL)" -- set only when the player's club had a
-   * recent Champions/Europa/Conference League fixture. Absent (not `''`)
-   * when there is none, same convention as `element.news` being falsy. */
+  /** UEFA rotation-risk note (issue #51, reworded in #69), e.g.
+   * "started 90' vs Milan (UEL, 3d)", "hooked 58' vs Milan (UEL, 3d)" or
+   * "sub 10' vs Milan (UEL, 3d)" -- set only when the player's club had a
+   * recent Champions/Europa/Conference League fixture. The trailing "3d" is
+   * whole days of rest since that kickoff; `formatEuropeNote` emits nothing
+   * at all past `EUROPE_NOTE_MAX_REST_DAYS`. Absent (not `''`) when there is
+   * none, same convention as `element.news` being falsy. */
   europeNote?: string;
+  /** Upcoming-fixture note (issue #69), e.g. "vs SLB (H) att1.35 concede0.78",
+   * "no fixture", or two fixtures joined by ", " in a double gameweek. The
+   * factors describe the OPPONENT, which the `opp:` label scopes. Absent
+   * (not `''`) when the active projection strategy loaded no team ratings --
+   * `ep-next` never reads them -- same convention as `europeNote`. */
+  opponentNote?: string;
 }
 
 /** One candidate transfer offered to the model. Already legality- and
@@ -170,18 +184,58 @@ const LINEUP_RULES_TEXT =
   `0-${RULES.squadPlay - 1} into the XI ordered gk, def, mid, fwd, flex, not element ids, and ` +
   `must differ.`;
 
+/** Shared across all three system prompts (issue #69). Explains the
+ * `europe:` note in the direction the physics actually runs: load rises with
+ * minutes and falls with rest days. The previous wording said the opposite
+ * -- it called a short cameo the rotation risk -- which told the model that
+ * a 90-minute starter was the safe pick. The early-hook signal is real but
+ * it is a DIFFERENT signal, so it is named separately here. */
+const EUROPE_FIELD_TEXT =
+  `it gives whether they started, their minutes, and days of rest since. Fatigue rises with ` +
+  `minutes and falls with rest days, so a starter who finished 90' on 2 days rest is the tired ` +
+  `one and a substitute who played 10' is not. Separately, a starter hooked well before the end ` +
+  `can mean a knock or a managed load - that is selection risk, not fatigue.`;
+
+/** Shared by the squad and lineup prompts (issue #69). The last two
+ * sentences are the whole point: `xpts` is ALREADY fixture-adjusted (see
+ * `projectAll` in src/model/projection.ts -- `attackFactor` for attacking
+ * returns, `exp(-opponentGoalsExpected)` for clean sheets), so a model that
+ * also discounts a hard opponent by hand charges the same fixture twice. */
+const OPPONENT_FIELD_TEXT =
+  `It gives that opponent's attack and concede factors, both centred on 1.0: above 1.0 is more ` +
+  `goals than average, below 1.0 is fewer. "no fixture" means a blank gameweek. xpts ALREADY ` +
+  `prices this fixture, so never discount a player twice for a hard opponent - use "opp" to ` +
+  `judge ceiling, variance and captaincy, and to question an xpts that looks wrong.`;
+
+/** The transfer prompt's version (issue #69). `gain` spans the whole
+ * planning horizon while `opp` is one fixture, so the horizon mismatch has
+ * to be stated or a single hard fixture will talk the model out of a
+ * transfer the deterministic gain already justifies. */
+const TRANSFER_OPPONENT_FIELD_TEXT =
+  `An "opp" field names the club that player faces next, with that opponent's attack and ` +
+  `concede factors, both centred on 1.0 (above 1.0 is more goals). "gain" already spans the ` +
+  `whole planning horizon while "opp" is only the next fixture, so never overturn a clear gain ` +
+  `on one fixture alone.`;
+
 function formatCost(nowCostTenths: number): string {
   return (nowCostTenths / 10).toFixed(1);
 }
 
-const PLAYER_LINE_HEADER = 'id|name|pos|club|cost|xpts|form|mins|news?';
+const PLAYER_LINE_HEADER = 'id|name|pos|club|cost|xpts|form|mins|opp?|news?';
 
-/** ~35 tokens per line, +~10 more when `news` and/or `europeNote` (issue #51)
- * are present. See module docstring for why `news` is never truncated; the
- * same reasoning applies to `europeNote` -- both are the free-text signals a
- * numeric model can't read on its own. */
+/** ~35 tokens per line, +~10 more for each of `opponentNote` (issue #69),
+ * `news` and `europeNote` (issue #51) that is present. See module docstring
+ * for why `news` is never truncated; the same reasoning applies to
+ * `europeNote` -- both are the free-text signals a numeric model can't read
+ * on its own.
+ *
+ * `opponentNote` is different in kind: `xpts` ALREADY prices the fixture
+ * (`projectAll`, src/model/projection.ts), so this field adds no information
+ * the optimizer lacks. It is here so the MODEL can see what produced a
+ * number it would otherwise have to take on trust. `OPPONENT_FIELD_TEXT`
+ * carries the matching warning against discounting the same fixture twice. */
 export function formatPlayerLine(entry: ShortlistEntry): string {
-  const { element, clubShortName, xpts, europeNote } = entry;
+  const { element, clubShortName, xpts, europeNote, opponentNote } = entry;
   const base = [
     element.id,
     element.web_name,
@@ -192,7 +246,8 @@ export function formatPlayerLine(entry: ShortlistEntry): string {
     element.form,
     element.minutes,
   ].join('|');
-  const withNews = element.news ? `${base}|news:${element.news}` : base;
+  const withOpponent = opponentNote ? `${base}|opp:${opponentNote}` : base;
+  const withNews = element.news ? `${withOpponent}|news:${element.news}` : withOpponent;
   return europeNote ? `${withNews}|europe:${europeNote}` : withNews;
 }
 
@@ -243,8 +298,8 @@ export function buildSquadPrompt(shortlist: ShortlistEntry[]): BuiltPrompt {
     `player's "news" field is a Portuguese injury/suspension note not reflected in xpts - treat ` +
     `an active injury or suspension as a strong reason to avoid that player. An "europe" field ` +
     `is a note on that player's most recent Champions/Europa/Conference League appearance (also ` +
-    `not reflected in xpts) - a player subbed off early there carries more fatigue/rotation risk ` +
-    `than one who played 90. Respond using the ` +
+    `not reflected in xpts): ${EUROPE_FIELD_TEXT} An "opp" field names the club that player ` +
+    `faces next. ${OPPONENT_FIELD_TEXT} Respond using the ` +
     `JSON schema only: one list of ids per position, and one short reason.`;
   // The rules are restated after the candidates as well as before them: the
   // list is long enough that the system message is thousands of tokens behind
@@ -310,8 +365,8 @@ export function buildLineupPrompt(owned: ShortlistEntry[]): BuiltPrompt {
     `suspension note not reflected in xpts - a starter who is actually injured or suspended ` +
     `scores nothing, so treat "news" as the most important signal for who starts and who is ` +
     `captain. An "europe" field notes that player's most recent Champions/Europa/Conference ` +
-    `League appearance - being subbed off early there is a fatigue/rotation-risk signal against ` +
-    `starting or captaining them next, weigh it alongside "news". Respond using the JSON schema ` +
+    `League appearance: ${EUROPE_FIELD_TEXT} Weigh it alongside "news". An "opp" field names ` +
+    `the club that player faces next. ${OPPONENT_FIELD_TEXT} Respond using the JSON schema ` +
     `only: one list of ids per position (gk/def/mid/fwd), ` +
     `one flex list of outfield ids, an integer captain index, an integer vice-captain index, and ` +
     `one short reason.`;
@@ -344,8 +399,8 @@ export function buildTransferPrompt(
     `horizon if made. A player's "news" field is a Portuguese injury/suspension note the ` +
     `deterministic gain does not fully capture - weigh it when a candidate's outgoing or ` +
     `incoming player is flagged. An "europe" field notes that player's most recent Champions/` +
-    `Europa/Conference League appearance - being subbed off early there is a fatigue/rotation-` +
-    `risk signal, also not reflected in "gain". Pick the single best candidate, or elect not to transfer if ` +
+    `Europa/Conference League appearance, also not reflected in "gain": ${EUROPE_FIELD_TEXT} ` +
+    `${TRANSFER_OPPONENT_FIELD_TEXT} Pick the single best candidate, or elect not to transfer if ` +
     `none clearly helps. Respond using the JSON schema only: to make a transfer, echo that ` +
     `candidate's element_in and element_out ids exactly as given; to make no transfer, respond ` +
     `element_in=0 and element_out=0. Always include one short reason.`;

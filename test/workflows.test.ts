@@ -1300,12 +1300,12 @@ describe('buildShortlistEntries: europeNotes wiring (issue #51)', () => {
       [Position.FWD]: 0,
     });
     const ids = elements.map((e) => e.id);
-    const europeNotes = new Map([[ids[0]!, "subbed 61' vs Milan (UEL)"]]);
+    const europeNotes = new Map([[ids[0]!, "hooked 61' vs Milan (UEL, 3d)"]]);
 
     const entries = buildShortlistEntries(ids, elements, projections, TEAMS, europeNotes);
 
     expect(entries.find((e) => e.element.id === ids[0])?.europeNote).toBe(
-      "subbed 61' vs Milan (UEL)",
+      "hooked 61' vs Milan (UEL, 3d)",
     );
     expect(entries.find((e) => e.element.id === ids[1])?.europeNote).toBeUndefined();
   });
@@ -1324,6 +1324,89 @@ describe('buildShortlistEntries: europeNotes wiring (issue #51)', () => {
       TEAMS,
     );
     expect(entries.every((e) => e.europeNote === undefined)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Issue #69: opponent-visibility note wiring
+// ---------------------------------------------------------------------------
+
+describe('buildShortlistEntries: opponentNotesByTeam wiring (issue #69)', () => {
+  it('sets opponentNote from the team-keyed map, using element.team as the key (not element.id)', () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 1,
+      [Position.DEF]: 1,
+      [Position.MID]: 0,
+      [Position.FWD]: 0,
+    });
+    const [gk, def] = elements;
+    const opponentNotesByTeam = new Map([[gk!.team, 'vs SLB (H) att1.35 concede0.78']]);
+
+    const entries = buildShortlistEntries(
+      elements.map((e) => e.id),
+      elements,
+      projections,
+      TEAMS,
+      undefined,
+      opponentNotesByTeam,
+    );
+
+    expect(entries.find((e) => e.element.id === gk!.id)?.opponentNote).toBe(
+      'vs SLB (H) att1.35 concede0.78',
+    );
+    // def's team is not a key in the map, so it stays undefined rather than
+    // inheriting gk's note.
+    expect(entries.find((e) => e.element.id === def!.id)?.opponentNote).toBeUndefined();
+  });
+
+  it('leaves every opponentNote undefined when no map is passed at all', () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 1,
+      [Position.DEF]: 0,
+      [Position.MID]: 0,
+      [Position.FWD]: 0,
+    });
+    const entries = buildShortlistEntries(
+      elements.map((e) => e.id),
+      elements,
+      projections,
+      TEAMS,
+    );
+    expect(entries.every((e) => e.opponentNote === undefined)).toBe(true);
+  });
+});
+
+describe('runDecisionCore threads opponentNotesByTeam into the LLM prompt (issue #69)', () => {
+  it('an opponentNote from deps.opponentNotesByTeam reaches the lineup prompt on the lineup-only path', async () => {
+    const { elements, projections } = makePool({
+      [Position.GK]: 6,
+      [Position.DEF]: 15,
+      [Position.MID]: 15,
+      [Position.FWD]: 10,
+    });
+    const squadPicks = firstLegalSquadPicks(elements);
+    const existingSquad: ExistingSquad = {
+      entry: 1,
+      picks: squadPicks,
+      bank: 20,
+      cumulativeTransfers: 0,
+    };
+    const noteElement = elements.find((e) => e.id === squadPicks[0]!.element)!;
+    const provider = new StubProvider({ ok: false, error: 'decline' });
+    const opponentNotesByTeam = new Map([[noteElement.team, 'vs SLB (H) att1.35 concede0.78']]);
+    const deps = makeDeps({
+      elements,
+      projections,
+      existingSquad,
+      provider,
+      opponentNotesByTeam,
+    });
+
+    await runDecisionCore('lineup-only', deps);
+
+    expect(provider.calls.length).toBeGreaterThan(0);
+    const promptText = provider.calls.flatMap((c) => c.messages.map((m) => m.content)).join('\n');
+    expect(promptText).toContain('opp:vs SLB (H) att1.35 concede0.78');
   });
 });
 
@@ -1352,7 +1435,7 @@ describe('runDecisionCore threads getEuropeNotes into the LLM prompt (issue #51)
       provider,
       getEuropeNotes: async (elementIds) => {
         getEuropeNotesCalls.push([...elementIds]);
-        return new Map([[noteElementId, "subbed 61' vs Milan (UEL)"]]);
+        return new Map([[noteElementId, "hooked 61' vs Milan (UEL, 3d)"]]);
       },
     });
 
@@ -1362,7 +1445,7 @@ describe('runDecisionCore threads getEuropeNotes into the LLM prompt (issue #51)
     expect(getEuropeNotesCalls[0]).toEqual(expect.arrayContaining([noteElementId]));
     expect(provider.calls.length).toBeGreaterThan(0);
     const promptText = provider.calls.flatMap((c) => c.messages.map((m) => m.content)).join('\n');
-    expect(promptText).toContain("europe:subbed 61' vs Milan (UEL)");
+    expect(promptText).toContain("europe:hooked 61' vs Milan (UEL, 3d)");
   });
 });
 

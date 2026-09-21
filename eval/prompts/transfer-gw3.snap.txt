@@ -1,37 +1,37 @@
 ### case: transfer-gw3
 ### system
-You may make AT MOST ONE transfer this gameweek for a Fantasy Liga Portugal (Betclic) team, chosen only from the numbered candidate list below - every candidate is already legal and budget-checked, so you do not need to check budget or squad rules yourself. Each candidate's "gain" is the deterministic model's projected point gain over the planning horizon if made. A player's "news" field is a Portuguese injury/suspension note the deterministic gain does not fully capture - weigh it when a candidate's outgoing or incoming player is flagged. An "europe" field notes that player's most recent Champions/Europa/Conference League appearance - being subbed off early there is a fatigue/rotation-risk signal, also not reflected in "gain". Pick the single best candidate, or elect not to transfer if none clearly helps. Respond using the JSON schema only: to make a transfer, echo that candidate's element_in and element_out ids exactly as given; to make no transfer, respond element_in=0 and element_out=0. Always include one short reason.
+You may make AT MOST ONE transfer this gameweek for a Fantasy Liga Portugal (Betclic) team, chosen only from the numbered candidate list below - every candidate is already legal and budget-checked, so you do not need to check budget or squad rules yourself. Each candidate's "gain" is the deterministic model's projected point gain over the planning horizon if made. A player's "news" field is a Portuguese injury/suspension note the deterministic gain does not fully capture - weigh it when a candidate's outgoing or incoming player is flagged. An "europe" field notes that player's most recent Champions/Europa/Conference League appearance, also not reflected in "gain": it gives whether they started, their minutes, and days of rest since. Fatigue rises with minutes and falls with rest days, so a starter who finished 90' on 2 days rest is the tired one and a substitute who played 10' is not. Separately, a starter hooked well before the end can mean a knock or a managed load - that is selection risk, not fatigue. An "opp" field names the club that player faces next, with that opponent's attack and concede factors, both centred on 1.0 (above 1.0 is more goals). "gain" already spans the whole planning horizon while "opp" is only the next fixture, so never overturn a clear gain on one fixture alone. Pick the single best candidate, or elect not to transfer if none clearly helps. Respond using the JSON schema only: to make a transfer, echo that candidate's element_in and element_out ids exactly as given; to make no transfer, respond element_in=0 and element_out=0. Always include one short reason.
 ### user
 Bank: EUR6.9m.
 Current squad (15 players):
-id|name|pos|club|cost|xpts|form|mins|news?
-7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117
-9|André Clóvis|FWD|AVFC|6.0|3.5|4.5|275
-13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
-75|Baeza|MID|CDN|5.0|3.5|3.2|282
-77|Liziero|MID|CDN|5.0|3.7|5.0|337
-148|Léo Linck|GK|CFEA|5.0|0.0|2.7|270
-187|Fontán|DEF|FCA|5.2|3.8|7.0|360
-242|Diogo Costa|GK|FCP|6.6|3.5|6.5|360
-264|Gabri Veiga|MID|FCP|8.3|3.8|9.5|308
-405|Gonçalo Paciência|FWD|CDSC|5.8|5.7|7.2|295
-436|Prestianni|MID|SLB|8.2|0.0|8.7|250
-539|Ioannidis|FWD|SCP|9.5|6.7|5.2|159
-544|Zalazar|MID|SCP|10.5|4.7|5.5|347
-618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
-640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
+id|name|pos|club|cost|xpts|form|mins|opp?|news?
+7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117|opp:vs CSM (A) att0.97 concede0.88
+9|André Clóvis|FWD|AVFC|6.0|3.5|4.5|275|opp:vs CSM (A) att0.97 concede0.88
+13|Robinho|DEF|AVFC|4.5|2.9|3.0|360|opp:vs CSM (A) att0.97 concede0.88
+75|Baeza|MID|CDN|5.0|3.5|3.2|282|opp:vs VSC (A) att0.94 concede1.04
+77|Liziero|MID|CDN|5.0|3.7|5.0|337|opp:vs VSC (A) att0.94 concede1.04
+148|Léo Linck|GK|CFEA|5.0|0.0|2.7|270|opp:no fixture
+187|Fontán|DEF|FCA|5.2|3.8|7.0|360|opp:vs FCP (A) att1.06 concede0.80
+242|Diogo Costa|GK|FCP|6.6|3.5|6.5|360|opp:vs FCA (H) att1.10 concede0.80
+264|Gabri Veiga|MID|FCP|8.3|3.8|9.5|308|opp:vs FCA (H) att1.10 concede0.80
+405|Gonçalo Paciência|FWD|CDSC|5.8|5.7|7.2|295|opp:vs FCF (H) att0.94 concede1.01
+436|Prestianni|MID|SLB|8.2|0.0|8.7|250|opp:no fixture
+539|Ioannidis|FWD|SCP|9.5|6.7|5.2|159|opp:vs ALV (H) att0.94 concede1.05
+544|Zalazar|MID|SCP|10.5|4.7|5.5|347|opp:vs ALV (H) att0.94 concede1.05
+618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0|opp:vs FCP (A) att1.06 concede0.80
+640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0|opp:vs ALV (H) att0.94 concede1.05
 
 Candidate transfers:
-1. element_in=200 element_out=436 gain:+2.7 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
-2. element_in=296 element_out=436 gain:+2.5 | IN 296|Joelson Fernandes|MID|GVFC|5.5|3.6|3.3|212 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
-3. element_in=62 element_out=640 gain:+2.4 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
-4. element_in=62 element_out=618 gain:+1.9 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
-5. element_in=62 element_out=640 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
-6. element_in=62 element_out=13 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
-7. element_in=64 element_out=618 gain:+1.3 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
-8. element_in=62 element_out=7 gain:+1.3 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117
-9. element_in=64 element_out=640 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0
-10. element_in=64 element_out=13 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360
-11. element_in=200 element_out=436 gain:+0.8 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250
-12. element_in=62 element_out=187 gain:+0.7 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360 | OUT 187|Fontán|DEF|FCA|5.2|3.8|7.0|360
-13. element_in=389 element_out=618 gain:+0.7 | IN 389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0
+1. element_in=200 element_out=436 gain:+2.7 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356|opp:vs FCP (A) att1.06 concede0.80 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250|opp:no fixture
+2. element_in=296 element_out=436 gain:+2.5 | IN 296|Joelson Fernandes|MID|GVFC|5.5|3.6|3.3|212|opp:vs CPAC (H) att0.80 concede1.26 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250|opp:no fixture
+3. element_in=62 element_out=640 gain:+2.4 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0|opp:vs ALV (H) att0.94 concede1.05
+4. element_in=62 element_out=618 gain:+1.9 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0|opp:vs FCP (A) att1.06 concede0.80
+5. element_in=62 element_out=640 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0|opp:vs ALV (H) att0.94 concede1.05
+6. element_in=62 element_out=13 gain:+1.6 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360|opp:vs CSM (A) att0.97 concede0.88
+7. element_in=64 element_out=618 gain:+1.3 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0|opp:vs FCP (A) att1.06 concede0.80
+8. element_in=62 element_out=7 gain:+1.3 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 7|Rúben Pereira|DEF|AVFC|4.0|3.2|2.5|117|opp:vs CSM (A) att0.97 concede0.88
+9. element_in=64 element_out=640 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 640|Moncef Zekri|DEF|SCP|5.5|2.6|0.0|0|opp:vs ALV (H) att0.94 concede1.05
+10. element_in=64 element_out=13 gain:+1.0 | IN 64|Zé Vítor|DEF|CDN|5.1|3.9|5.8|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 13|Robinho|DEF|AVFC|4.5|2.9|3.0|360|opp:vs CSM (A) att0.97 concede0.88
+11. element_in=200 element_out=436 gain:+0.8 | IN 200|Naïs Djouahra|MID|FCA|6.2|3.9|5.8|356|opp:vs FCP (A) att1.06 concede0.80 | OUT 436|Prestianni|MID|SLB|8.2|0.0|8.7|250|opp:no fixture
+12. element_in=62 element_out=187 gain:+0.7 | IN 62|Léo Santos|DEF|CDN|4.6|4.5|6.0|360|opp:vs VSC (A) att0.94 concede1.04 | OUT 187|Fontán|DEF|FCA|5.2|3.8|7.0|360|opp:vs FCP (A) att1.06 concede0.80
+13. element_in=389 element_out=618 gain:+0.7 | IN 389|Diogo Calila|DEF|CDSC|4.5|3.3|5.2|354|opp:vs FCF (H) att0.94 concede1.01 | OUT 618|Diogo Ferro|DEF|FCA|4.0|0.0|0.0|0|opp:vs FCP (A) att1.06 concede0.80

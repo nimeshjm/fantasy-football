@@ -80,6 +80,13 @@ function buildOwned(
     }),
     clubShortName: `C${s.team}`,
     xpts: xpts[s.id] ?? 0,
+    // No `opponentNote` (issue #69): these cases are fully synthetic
+    // (`team: 1`..`8` are bare placeholder ids, not real bootstrap-static
+    // teams) and this module has no fitted `RatingsModel` or fixture list to
+    // build one from -- there is nothing real for `buildOpponentNotesByTeam`
+    // to read here, unlike dataset.ts's `pointInTimeState`. Leaving it
+    // unset degrades exactly the way production does under `ep-next`: no
+    // `opp` column, never a fabricated one.
   }));
 }
 
