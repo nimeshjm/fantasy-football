@@ -72,22 +72,66 @@ export function matchElementByName(
   return null;
 }
 
+/** How many rest days a UEFA appearance may be behind `now` and still be
+ * worth surfacing (issue #69). Roughly one gameweek cycle: past about a
+ * week, whatever fatigue or rotation signal the appearance carried has
+ * been overtaken by the club's next match(es), so it stops being useful
+ * input to a *current* transfer/lineup decision. Deliberately well inside
+ * `UEFA_LOOKBACK_DAYS` (14, decideCommit.ts) -- that constant bounds how
+ * far back `refreshUefaAppearances` will still *ingest* a fixture, which is
+ * a separate concern from how far back a note is worth *showing*. */
+export const EUROPE_NOTE_MAX_REST_DAYS = 7;
+
 /** Formats one stored appearance into the compact `europeNote` text
- * (`ShortlistEntry.europeNote`, src/ai/prompts.ts), e.g. `subbed 61' vs
- * Milan (UEL)` or `played 90' vs Milan (UEL)`. Kept to a handful of tokens
- * -- see prompts.ts's own token-density doc comments -- by never spelling
- * out the date or the full competition name. */
-export function formatEuropeNote(appearance: {
-  competition: string;
-  opponent: string;
-  subbedOffMinute: number | null;
-  minutesPlayed: number;
-}): string {
-  const played =
-    appearance.subbedOffMinute != null
-      ? `subbed ${appearance.subbedOffMinute}'`
-      : `played ${appearance.minutesPlayed}'`;
-  return `${played} vs ${appearance.opponent} (${appearance.competition})`;
+ * (`ShortlistEntry.europeNote`, src/ai/prompts.ts), e.g. `started 90' vs
+ * Manchester City (UCL, 3d)` or `hooked 58' vs AC Milan (UEL, 4d)`. Kept to
+ * a handful of tokens -- see prompts.ts's own token-density doc comments.
+ *
+ * Three shapes, driven by `started`/`subbedOffMinute` (issue #69 -- before
+ * this, `subbedOffMinute === null` was used to mean "played the full 90",
+ * which silently misrepresented a player who was never selected at all as
+ * one who started and finished):
+ *   - started and never subbed off -> `started <minutesPlayed>'`
+ *   - started and subbed off       -> `hooked <subbedOffMinute>'` --
+ *     "hooked" is a deliberate word choice distinct from "subbed": the
+ *     prompt wording in src/ai/prompts.ts tells the model an early hook on
+ *     a STARTER is a selection-risk signal (the manager didn't trust them
+ *     to finish), not the same thing as ordinary fatigue from minutes
+ *     played.
+ *   - never started (came off the bench, or didn't play) -> `sub
+ *     <minutesPlayed>'`
+ *
+ * Returns `null` -- no note at all, rather than a stale or malformed one --
+ * when `kickoffTime` doesn't parse, or when it parses but is more than
+ * `EUROPE_NOTE_MAX_REST_DAYS` days behind `now`. */
+export function formatEuropeNote(
+  appearance: {
+    competition: string;
+    opponent: string;
+    started: boolean;
+    subbedOffMinute: number | null;
+    minutesPlayed: number;
+    kickoffTime: string;
+  },
+  now: Date,
+): string | null {
+  const kickoffMs = Date.parse(appearance.kickoffTime);
+  if (Number.isNaN(kickoffMs)) return null;
+
+  // Clamp negative gaps (a kickoff in the future, or ordinary clock skew) to
+  // 0 rather than rendering something like "-1d".
+  const restDays = Math.max(0, Math.floor((now.getTime() - kickoffMs) / 86_400_000));
+  if (restDays > EUROPE_NOTE_MAX_REST_DAYS) return null;
+
+  let played: string;
+  if (!appearance.started) {
+    played = `sub ${appearance.minutesPlayed}'`;
+  } else if (appearance.subbedOffMinute !== null) {
+    played = `hooked ${appearance.subbedOffMinute}'`;
+  } else {
+    played = `started ${appearance.minutesPlayed}'`;
+  }
+  return `${played} vs ${appearance.opponent} (${appearance.competition}, ${restDays}d)`;
 }
 
 /** Hard ceiling on summary fetches per refresh, across all clubs. Bounds the
@@ -211,19 +255,35 @@ export async function refreshUefaAppearances(deps: {
  * `elementId` is kept and any later ones for that element are ignored.
  * Never throws -- an unreadable D1 row set degrades to an empty map, i.e.
  * no `europe:` notes this cycle, never a blocked decision.
+ *
+ * `formatEuropeNote` can now return `null` (issue #69) when the most recent
+ * row is older than `EUROPE_NOTE_MAX_REST_DAYS`. That element still gets NO
+ * note -- it must NOT fall through to an older row for the same element,
+ * which by definition would be even further past the threshold. The trap:
+ * a `seen` set (rather than just checking `notes.has`) is what marks the
+ * element as already handled even when nothing was added to `notes`, so a
+ * later, older row for that same element can't sneak in and get formatted
+ * instead.
+ *
+ * `now` defaults to `new Date()` so the existing two-argument call site in
+ * src/workflows/decideCommit.ts keeps working unchanged.
  */
 export async function buildEuropeNotes(
   db: D1Database,
   elementIds: readonly number[],
+  now: Date = new Date(),
 ): Promise<Map<number, string>> {
   const notes = new Map<number, string>();
   if (elementIds.length === 0) return notes;
 
   try {
     const rows = await getUefaAppearancesForElements(db, elementIds);
+    const seen = new Set<number>();
     for (const row of rows) {
-      if (notes.has(row.elementId)) continue;
-      notes.set(row.elementId, formatEuropeNote(row));
+      if (seen.has(row.elementId)) continue;
+      seen.add(row.elementId);
+      const note = formatEuropeNote(row, now);
+      if (note !== null) notes.set(row.elementId, note);
     }
     return notes;
   } catch {

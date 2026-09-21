@@ -8,6 +8,7 @@ import { RULES, type Element, type Pick, type SquadState, type Team } from '../.
 import type { ShortlistEntry, TransferCandidateEntry } from '../../../src/ai/prompts';
 import { buildShortlist } from '../../../src/shortlist';
 import { candidateTransfers } from '../../../src/optimizer/transfers';
+import { buildOpponentNotesByTeam } from '../../../src/opponentNote';
 import type {
   EvalCase,
   SquadCaseInput,
@@ -31,8 +32,29 @@ function teamShortName(teamId: number): string {
   return teams.find((t) => t.id === teamId)?.short_name ?? '?';
 }
 
+/** `PointInTimeState.ratings`/`fixturesByTeam` (fixtures.ts) are exactly the
+ * `model-v2` inputs `buildOpponentNotesByTeam` (src/opponentNote.ts) wants
+ * -- `pointInTimeState` always builds both (never `undefined`), so every eval
+ * prompt gets an `opp:` column, same as production.
+ *
+ * Cached by `state` object identity (`stateFor` in `build()` already caches
+ * ONE `PointInTimeState` per gameweek, reused across that gameweek's squad/
+ * lineup/transfer cases) so this is built once per gameweek and reused
+ * across every case for that gameweek, mirroring how `decideCommit.ts`'s
+ * `project` step builds it once for the whole tick. */
+const opponentNotesCache = new WeakMap<PointInTimeState, Map<number, string>>();
+function opponentNotesFor(state: PointInTimeState): Map<number, string> {
+  let notes = opponentNotesCache.get(state);
+  if (!notes) {
+    notes = buildOpponentNotesByTeam(teams, state.fixturesByTeam, state.ratings);
+    opponentNotesCache.set(state, notes);
+  }
+  return notes;
+}
+
 /** Mirrors `buildShortlistEntries` in src/workflows/decideCommit.ts (a
- * missing projection defaults xpts to 0), sorted by element id since
+ * missing projection defaults xpts to 0, `opponentNote` keyed by
+ * `element.team` via `opponentNotesByTeam`), sorted by element id since
  * `buildShortlist`'s shortlist order is unspecified and cases must be
  * byte-identical across runs. */
 function toShortlistEntries(
@@ -41,6 +63,7 @@ function toShortlistEntries(
 ): ShortlistEntry[] {
   const elementById = new Map(state.elements.map((e) => [e.id, e] as const));
   const xptsById = new Map(state.projections.map((p) => [p.element_id, p.xpts] as const));
+  const opponentNotesByTeam = opponentNotesFor(state);
   const entries: ShortlistEntry[] = [];
   for (const id of elementIds) {
     const element = elementById.get(id);
@@ -49,6 +72,7 @@ function toShortlistEntries(
       element,
       clubShortName: teamShortName(element.team),
       xpts: xptsById.get(id) ?? 0,
+      opponentNote: opponentNotesByTeam.get(element.team),
     });
   }
   return entries.sort((a, b) => a.element.id - b.element.id);
