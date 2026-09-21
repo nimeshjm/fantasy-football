@@ -347,6 +347,26 @@ describe('actionDetailCell', () => {
     expect(html).toBe(`<pre>${escapeHtml(safeJson(action.response))}</pre>`);
   });
 
+  it('transfer-post: omits the API response block for an empty-string response', () => {
+    const elementById = new Map<number, ElementRow>();
+    const elIn = makeElement();
+    const elOut = makeElement();
+    elementById.set(elIn.id, elIn);
+    elementById.set(elOut.id, elOut);
+    const move = {
+      element_in: elIn.id,
+      element_out: elOut.id,
+      purchase_price: 45,
+      selling_price: 50,
+    };
+    const action = makeAction({ kind: 'transfer-post', intent: move, response: '', ok: true });
+
+    const html = actionDetailCell(action, elementById);
+
+    expect(html).not.toContain('API response');
+    expect(html).not.toContain('tag err');
+  });
+
   it('lineup-post: omits the API response block for an empty-string response', () => {
     const elementById = new Map<number, ElementRow>();
     const picks = makeFullSquad(elementById);
