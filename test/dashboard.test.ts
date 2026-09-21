@@ -305,7 +305,7 @@ describe('actionDetailCell', () => {
     },
   );
 
-  it('renders any other kind byte-identical to the old fallback expression', () => {
+  it('renders any other kind as a <pre> of the intent when the response is null', () => {
     const elementById = new Map<number, ElementRow>();
     const action = makeAction({
       kind: 'session-health',
@@ -314,9 +314,47 @@ describe('actionDetailCell', () => {
     });
 
     const html = actionDetailCell(action, elementById);
-    const expected = `<pre>${escapeHtml(safeJson(action.response ?? action.intent))}</pre>`;
 
-    expect(html).toBe(expected);
+    expect(html).toBe(`<pre>${escapeHtml(safeJson(action.intent))}</pre>`);
+  });
+
+  it.each([[{} as unknown], [[] as unknown], ['' as unknown]])(
+    'falls through to the intent for an information-free response %j',
+    (emptyResponse) => {
+      const elementById = new Map<number, ElementRow>();
+      const action = makeAction({
+        kind: 'session-health',
+        intent: { some: 'payload' },
+        response: emptyResponse,
+      });
+
+      const html = actionDetailCell(action, elementById);
+
+      expect(html).toBe(`<pre>${escapeHtml(safeJson(action.intent))}</pre>`);
+    },
+  );
+
+  it('prefers a populated response over the intent', () => {
+    const elementById = new Map<number, ElementRow>();
+    const action = makeAction({
+      kind: 'session-health',
+      intent: { some: 'payload' },
+      response: { status: 'renewed' },
+    });
+
+    const html = actionDetailCell(action, elementById);
+
+    expect(html).toBe(`<pre>${escapeHtml(safeJson(action.response))}</pre>`);
+  });
+
+  it('lineup-post: omits the API response block for an empty-string response', () => {
+    const elementById = new Map<number, ElementRow>();
+    const picks = makeFullSquad(elementById);
+    const action = makeAction({ kind: 'lineup-post', intent: picks, response: '' });
+
+    const html = actionDetailCell(action, elementById);
+
+    expect(html).not.toContain('API response');
   });
 
   it('escapes a <script> tag in reasoning and " / < in a picked player\'s news', () => {
