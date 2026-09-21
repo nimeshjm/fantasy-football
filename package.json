@@ -3,6 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "type": "module",
+  "overrides": {
+    "sharp": "0.35.4"
+  },
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
