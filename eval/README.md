@@ -39,10 +39,14 @@ cost and zero Neurons. `ReplayAi` looks up a recorded response envelope for each
 still parses, validates, gates, and costs the same. It does not call a model.
 
 **Live** (`EVAL_LIVE=1 npm run eval`) makes real calls against Workers AI's REST
-API. It needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, prints a
-pre-flight worst-case Neuron estimate, and refuses to start if that estimate
-exceeds `EVAL_MAX_NEURONS` (default **800**). A successful live run writes new
-cassettes for the replay lane to use afterward.
+API. It needs `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID`, and prints a
+pre-flight worst-case Neuron estimate. It does NOT refuse to start on that
+estimate. `EVAL_MAX_NEURONS` (default **2600**, `DEFAULT_MAX_NEURONS` in
+test/eval.test.ts) is a running budget instead: trials are skipped once it is
+exhausted, and the lane then fails on the non-empty `skipped` list, after the
+cassettes it did record are written. The fix for that failure is to raise the
+cap and re-run the remainder. A successful live run writes new cassettes for
+the replay lane to use afterward.
 
 ### Replay does not catch a prompt regression
 
@@ -130,7 +134,7 @@ formality.
 - **replay** — skipped until `eval/cassettes/` has something in it. Re-grades
   recorded answers.
 - **live** — `EVAL_LIVE=1` only. Needs `CLOUDFLARE_API_TOKEN` and
-  `CLOUDFLARE_ACCOUNT_ID`, capped by `EVAL_MAX_NEURONS` (default 2000).
+  `CLOUDFLARE_ACCOUNT_ID`, capped by `EVAL_MAX_NEURONS` (default 2600).
 
 Run the replay and harness lanes with `npm run eval`, or just `npm run test`,
 which includes them.
