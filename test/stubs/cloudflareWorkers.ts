@@ -3,12 +3,13 @@
  * `vitest.config.ts` node environment cannot resolve (it is a workerd
  * built-in, not an npm package). Aliased in `vitest.config.ts` so that
  * `src/workflows/*.ts` -- which extends the real `WorkflowEntrypoint` from
- * `cloudflare:workers` -- can be imported under plain Node during tests.
+ * `cloudflare:workers` -- and `src/telemetry.ts` -- which reads `tracing` --
+ * can be imported under plain Node during tests.
  *
- * This intentionally implements only the surface `src/workflows` actually
- * uses. It is never bundled into the deployed Worker (wrangler resolves the
- * real built-in there); it exists purely so `import ... from
- * 'cloudflare:workers'` doesn't blow up module resolution under Vitest.
+ * This intentionally implements only the surface `src/` actually uses. It
+ * is never bundled into the deployed Worker (wrangler resolves the real
+ * built-in there); it exists purely so `import ... from 'cloudflare:workers'`
+ * doesn't blow up module resolution under Vitest.
  */
 export abstract class WorkflowEntrypoint<Env = unknown, T = unknown> {
   protected ctx: unknown;
@@ -21,3 +22,7 @@ export abstract class WorkflowEntrypoint<Env = unknown, T = unknown> {
 
   abstract run(event: unknown, step: unknown): Promise<T>;
 }
+
+export const tracing = {
+  getActiveSpan: (): undefined => undefined,
+};

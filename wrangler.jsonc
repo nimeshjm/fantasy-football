@@ -50,5 +50,12 @@
     "ENTRY_REGION": "171"
   },
 
-  "observability": { "enabled": true }
+  // Traces and logs also export to the Honeycomb destinations created in the
+  // Cloudflare dashboard (Observability > Destinations). Persisted traces
+  // count toward Cloudflare Observability billing from 2026-12-01.
+  "observability": {
+    "enabled": true,
+    "traces": { "enabled": true, "destinations": ["honeycomb-traces"] },
+    "logs": { "enabled": true, "destinations": ["honeycomb-logs"] }
+  }
 }
