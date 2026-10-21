@@ -77,6 +77,7 @@
  */
 
 import { sendOpsAlert } from '../alert';
+import { reportError, type ReportError } from '../telemetry';
 import type { AlertDelivery } from '../sessionHealth';
 import { getAuthContext, type AuthContext } from '../api/session';
 import { FantasyApiClient } from '../api/client';
@@ -494,6 +495,7 @@ export interface DecisionCoreDeps {
   opponentNotesByTeam?: ReadonlyMap<number, string>;
 
   logAction: (input: ActionLogInput) => Promise<void>;
+  reportError: ReportError;
   /** Returns the inserted `ai_calls` row id -- `updateAiCallGate` stamps the
    * gate's verdict onto that same row once the gate has run. */
   logAiCall: (input: AiCallInput) => Promise<number>;
@@ -1175,21 +1177,17 @@ export async function runDecisionCore(
     }
     return await runTransferAndLineup(deps, deps.existingSquad);
   } catch (err) {
-    await deps.logAction({
-      ts: nowIso(),
-      kind: 'decide-commit-error',
-      intent: { mode },
-      // `fieldErrors` is the only place the live API says WHY it rejected a
-      // write (`squad_not_type_order` and friends). Logging just the message
-      // leaves 'Validation error from POST my-team/{id}/' as the whole record
-      // of a failed commit -- useless in the minutes before a deadline.
-      response: {
-        error: err instanceof Error ? err.message : String(err),
-        ...(err instanceof ApiValidationError ? { fieldErrors: err.fieldErrors } : {}),
+    deps.reportError({
+      slug: 'decide-commit-error',
+      err,
+      attrs: {
+        'app.mode': mode,
+        'app.dry_run': deps.config.dryRun,
+        // The live API's field errors are the only record of why a write was rejected.
+        ...(err instanceof ApiValidationError
+          ? { 'app.field_errors': JSON.stringify(err.fieldErrors) }
+          : {}),
       },
-      dryRun: deps.config.dryRun,
-      source: 'deterministic-fallback',
-      ok: false,
     });
     return { ok: false, posted: false, reason: err instanceof Error ? err.message : String(err) };
   }
@@ -1629,6 +1627,7 @@ export class DecideCommitWorkflow extends WorkflowEntrypoint<Env, DecideCommitPa
           return apiUpdateMyTeam(resolved.client, entry, resolved.auth, { chip: null, picks });
         },
         logAction: (input) => logAction(env.DB, input),
+        reportError,
         logAiCall: (input) => logAiCall(env.DB, input),
         updateAiCallGate: (id, gate) => updateAiCallGate(env.DB, id, gate),
         modelName: env.LLM_MODEL,

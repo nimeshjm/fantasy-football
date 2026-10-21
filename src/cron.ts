@@ -35,6 +35,7 @@
  */
 
 import type { ActionLogInput, SessionBeat, SessionOkState } from './db';
+import type { ReportError } from './telemetry';
 import {
   failureStreak,
   planSessionAlert,
@@ -134,6 +135,7 @@ export interface CronPorts {
    * not be a place a session cookie can reach. */
   checkSession(): Promise<{ healthy: boolean; entry?: number; cookieFingerprint?: string }>;
   logAction(input: ActionLogInput): Promise<void>;
+  reportError: ReportError;
   /** Records a healthy heartbeat against the `session` row (`last_ok_at`,
    * and `first_ok_at` when the cookie is new). */
   recordSessionOk(input: { at: string; fingerprint?: string }): Promise<void>;
@@ -215,16 +217,10 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
       try {
         upcomingFixtures = await ports.refreshUpcomingFixtures(nextEvent.id);
       } catch (err) {
-        // Logged, not swallowed silently -- a run of these is what precedes
-        // an all-zero projection set.
-        await ports.logAction({
-          ts: now.toISOString(),
-          kind: 'fixtures-refresh-error',
-          intent: { event: nextEvent.id },
-          response: { error: err instanceof Error ? err.message : String(err) },
-          dryRun: false,
-          source: 'cron',
-          ok: false,
+        ports.reportError({
+          slug: 'fixtures-refresh-error',
+          err,
+          attrs: { 'app.event_id': nextEvent.id },
         });
       }
     }
@@ -256,20 +252,7 @@ export async function runScheduledTick(ports: CronPorts): Promise<CronTickResult
   } catch (err) {
     // Belt-and-suspenders: nothing above should throw uncaught, but the
     // cron handler must never propagate an exception regardless.
-    try {
-      await ports.logAction({
-        ts: new Date().toISOString(),
-        kind: 'cron-tick-error',
-        intent: {},
-        response: { error: err instanceof Error ? err.message : String(err) },
-        dryRun: false,
-        source: 'cron',
-        ok: false,
-      });
-    } catch {
-      // Logging itself failed -- nothing more can be done without risking
-      // an uncaught throw from the scheduled handler.
-    }
+    ports.reportError({ slug: 'cron-tick-error', err });
     return {
       skipped: false,
       deadlineAction: 'none',
@@ -462,14 +445,10 @@ async function tryCreate(
   try {
     await create();
   } catch (err) {
-    await ports.logAction({
-      ts: new Date().toISOString(),
-      kind: `cron-dispatch-${kind}`,
-      intent: { id },
-      response: { error: err instanceof Error ? err.message : String(err) },
-      dryRun: false,
-      source: 'cron',
-      ok: false,
+    ports.reportError({
+      slug: `cron-dispatch-${kind}`,
+      err,
+      attrs: { 'app.workflow_id': id },
     });
   }
 }

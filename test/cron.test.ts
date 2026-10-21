@@ -19,6 +19,7 @@ import {
   SESSION_BEAT_FRESH_WINDOW_MS,
 } from '../src/sessionHealth';
 import type { SessionBeat } from '../src/db';
+import type { ErrorReport } from '../src/telemetry';
 
 function event(overrides: Partial<MinimalEvent> = {}): MinimalEvent {
   return { id: 5, deadline_time: '2026-09-10T18:00:00Z', data_checked: false, ...overrides };
@@ -136,6 +137,7 @@ function failedBeats(n: number): SessionBeat[] {
 
 function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
   logged: unknown[];
+  reported: ErrorReport[];
   decideCreated: { id: string; params: unknown }[];
   ingestCreated: { id: string; params: unknown }[];
   sessionOks: { at: string; fingerprint?: string }[];
@@ -143,6 +145,7 @@ function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
   alertOpenWrites: boolean[];
 } {
   const logged: unknown[] = [];
+  const reported: ErrorReport[] = [];
   const decideCreated: { id: string; params: unknown }[] = [];
   const ingestCreated: { id: string; params: unknown }[] = [];
   const sessionOks: { at: string; fingerprint?: string }[] = [];
@@ -158,6 +161,9 @@ function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
       .mockResolvedValue({ healthy: true, entry: 1, cookieFingerprint: 'abc123abc123' }),
     logAction: vi.fn(async (input: unknown) => {
       logged.push(input);
+    }),
+    reportError: vi.fn((report: ErrorReport) => {
+      reported.push(report);
     }),
     recordSessionOk: vi.fn(async (input: { at: string; fingerprint?: string }) => {
       sessionOks.push(input);
@@ -182,6 +188,7 @@ function makePorts(overrides: Partial<CronPorts> = {}): CronPorts & {
     ...base,
     ...overrides,
     logged,
+    reported,
     decideCreated,
     ingestCreated,
     sessionOks,
@@ -251,14 +258,32 @@ describe('runScheduledTick', () => {
     expect(ports.ingestCreated).toEqual([{ id: 'ingest-e4', params: { eventId: 4 } }]);
   });
 
-  it('logs, but does not throw, when the workflow dispatch itself fails (e.g. duplicate id)', async () => {
+  it('reports, but does not throw, when the workflow dispatch itself fails (e.g. duplicate id)', async () => {
     const nextEvent = event({ id: 7, deadline_time: '2026-09-10T18:00:00Z' });
     const ports = makePorts({
       refreshBootstrap: vi.fn().mockResolvedValue([nextEvent]),
       createDecideWorkflow: vi.fn().mockRejectedValue(new Error('instance already exists')),
     });
     await expect(runScheduledTick(ports)).resolves.toBeDefined();
-    expect(ports.logged.length).toBeGreaterThan(0);
+    expect(ports.reported).toHaveLength(1);
+    expect(ports.reported[0]).toMatchObject({
+      slug: 'cron-dispatch-decide',
+      attrs: { 'app.workflow_id': 'decide-e7' },
+    });
+    expect(ports.logged.some((l) => (l as { kind: string }).kind.startsWith('cron-dispatch'))).toBe(
+      false,
+    );
+  });
+
+  it('reports cron-tick-error and returns an inert result when the tick throws', async () => {
+    const ports = makePorts({
+      refreshBootstrap: vi.fn().mockRejectedValue(new Error('bootstrap down')),
+    });
+    const result = await runScheduledTick(ports);
+
+    expect(ports.reported).toHaveLength(1);
+    expect(ports.reported[0]!.slug).toBe('cron-tick-error');
+    expect(result.deadlineAction).toBe('none');
   });
 
   it('surfaces a dead session via logAction rather than swallowing it', async () => {
@@ -316,7 +341,7 @@ describe('runScheduledTick upcoming fixtures', () => {
     expect(result.upcomingFixtures).toBeNull();
   });
 
-  it('logs fixtures-refresh-error and still dispatches DECIDE when the fetch throws (#24)', async () => {
+  it('reports fixtures-refresh-error and still dispatches DECIDE when the fetch throws (#24)', async () => {
     // The load-bearing case. Before this refresh existed, fixtures for the
     // upcoming gameweek were structurally absent at decision time, so every
     // projection came back xpts: 0 and the deterministic gate accepted
@@ -333,10 +358,14 @@ describe('runScheduledTick upcoming fixtures', () => {
     const result = await runScheduledTick(ports);
 
     expect(result.upcomingFixtures).toBeNull();
-    const errorLog = ports.logged.find(
-      (l) => (l as { kind: string }).kind === 'fixtures-refresh-error',
-    );
-    expect(errorLog).toMatchObject({ intent: { event: 7 }, ok: false });
+    expect(ports.reported).toHaveLength(1);
+    expect(ports.reported[0]).toMatchObject({
+      slug: 'fixtures-refresh-error',
+      attrs: { 'app.event_id': 7 },
+    });
+    expect(
+      ports.logged.some((l) => (l as { kind: string }).kind === 'fixtures-refresh-error'),
+    ).toBe(false);
     expect(result.deadlineAction).toBe('decide');
     expect(ports.decideCreated).toEqual([
       { id: 'decide-e7', params: { mode: 'full', eventId: 7 } },
