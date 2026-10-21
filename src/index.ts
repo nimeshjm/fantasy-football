@@ -38,6 +38,7 @@ import {
   upsertFixtures,
   upsertTeams,
 } from './db';
+import { reportError } from './telemetry';
 import type { GameEvent } from './types';
 
 export { IngestWorkflow, DecideCommitWorkflow } from './workflows';
@@ -91,6 +92,7 @@ function buildCronPorts(env: Env): CronPorts {
     },
 
     logAction: (input) => logAction(env.DB, input),
+    reportError,
 
     // Read-modify-write, composed here rather than in src/db so the
     // decision stays a pure function (see src/sessionHealth.ts) and the SQL

@@ -191,6 +191,31 @@ token, unconfigured — returns a bare 404, never a 401, so a request can't dist
 here" from "wrong token." Every interpolated value (names, injury text, LLM reasoning) is
 HTML-escaped before rendering, since it's all free text from a live API or an LLM.
 
+## Errors in Honeycomb
+
+The Worker exports traces and logs to Honeycomb through Cloudflare's native Workers tracing
+(`observability.traces` and `observability.logs` in `wrangler.jsonc`). Errors and state are
+stored in different places:
+
+- **Honeycomb:** `cron-tick-error`, `fixtures-refresh-error`, `cron-dispatch-*` and
+  `decide-commit-error`. Each calls `reportError` (`src/telemetry.ts`), which marks the active span
+  (`error = true`, `exception.slug`) and writes one structured `console.error` line that is exported as a log.
+- **D1 `actions_log`:** everything else, including session-health beats, `session-alert`, and
+  decision outcome rows such as `entry-create`, `transfer-post` and `decide-commit-blank-fixtures`.
+
+| Destination | Endpoint | Header |
+|---|---|---|
+| `honeycomb-traces` | `https://api.honeycomb.io/v1/traces` | `x-honeycomb-team` |
+| `honeycomb-logs` | `https://api.honeycomb.io/v1/logs` | `x-honeycomb-team` |
+
+The Honeycomb ingest key is stored in the Cloudflare dashboard destination (Observability >
+Destinations > OpenTelemetry). It is not in the repo and not a Worker secret. Traces land in the
+dataset named after the Worker, `fantasy-football-agent`. To list errors by kind:
+
+```
+WHERE error = true GROUP BY exception.slug
+```
+
 ## Deployment
 
 Two GitHub Actions workflows, deliberately mutually exclusive so only one path ever touches

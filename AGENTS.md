@@ -41,11 +41,15 @@ The system uses a SQLite-based D1 database with these key tables:
 - Makes squad/transfer/lineup decisions using both AI and deterministic approaches
 - Uses team ratings for fixture difficulty information in projections
 
+#### Telemetry (`src/telemetry.ts`)
+- `reportError` records an exception on the active span and emits one structured `console.error` line, both exported to Honeycomb
+
 ### Implementation Details
 - **Chunked Operations**: D1 has a limit of 100 bound parameters per statement, requiring chunked upserts
 - **CPU Budgeting**: Workflow steps are split to stay within 10ms CPU budget per step
 - **Data Types**: Boolean values stored as INTEGER 0/1 in SQLite, coerced back to real booleans in src/db
 - **Timestamps**: Stored as ISO 8601 TEXT format
+- **Errors vs state**: Errors go to Honeycomb via `reportError`; state and decisions go to D1
 
 ### Key Features
 - **Autonomous Operation**: Runs entirely on Cloudflare free tier

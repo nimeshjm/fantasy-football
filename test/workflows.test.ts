@@ -28,6 +28,7 @@ vi.mock('../src/alert', () => ({
 
 import { getRecentFinishedFixturesForTeam, getFixtureAppearances } from '../src/api/espn';
 import { sendOpsAlert } from '../src/alert';
+import type { ErrorReport } from '../src/telemetry';
 import {
   Position,
   RULES,
@@ -411,6 +412,7 @@ function baseConfig(
 
 function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps & {
   actions: unknown[];
+  reported: ErrorReport[];
   transferPosts: TransferMove[][];
   myTeamPosts: Pick[][];
   createEntryCalls: number;
@@ -424,6 +426,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     [Position.FWD]: 10,
   });
   const actions: unknown[] = [];
+  const reported: ErrorReport[] = [];
   const transferPosts: TransferMove[][] = [];
   const myTeamPosts: Pick[][] = [];
   const opsAlerts: { summary: string; fields?: Record<string, unknown> }[] = [];
@@ -465,6 +468,9 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     logAction: async (input) => {
       actions.push(input);
     },
+    reportError: (report) => {
+      reported.push(report);
+    },
     logAiCall: async () => 1,
     updateAiCallGate: async () => {},
     saveSquadState: async () => {},
@@ -474,6 +480,7 @@ function makeDeps(overrides: Partial<DecisionCoreDeps> = {}): DecisionCoreDeps &
     ...deps,
     ...overrides,
     actions,
+    reported,
     transferPosts,
     myTeamPosts,
     createEntryPayloads,
@@ -593,6 +600,25 @@ describe('runDecisionCore: neuron budget cap', () => {
 // ---------------------------------------------------------------------------
 
 describe('runDecisionCore: blank-fixtures guard (issue #24)', () => {
+  it('reports an unexpected throw to telemetry instead of writing an actions_log row', async () => {
+    const deps = makeDeps({
+      config: baseConfig({ dryRun: false }),
+      createEntry: async () => {
+        throw new Error('boom');
+      },
+    });
+
+    const result = await runDecisionCore('full', deps);
+
+    expect(result).toMatchObject({ ok: false, posted: false, reason: 'boom' });
+    expect(deps.reported).toHaveLength(1);
+    expect(deps.reported[0]?.slug).toBe('decide-commit-error');
+    expect(deps.reported[0]?.attrs?.['app.mode']).toBe('full');
+    expect(deps.actions.some((a) => (a as { kind: string }).kind === 'decide-commit-error')).toBe(
+      false,
+    );
+  });
+
   it('aborts before any decision or post on the squad-creation path, logging the abort and alerting', async () => {
     const provider = new StubProvider({ ok: false, error: 'must not be reached' });
     const deps = makeDeps({
