@@ -1,0 +1,123 @@
+# Read by the software factory from the default branch on every run. Owned by humans:
+# widen dark_paths only after five clean merges per path group.
+dark_paths:
+  - "test/**"
+  - "docs/**"
+  - "**/*.md"
+  - "src/dashboard.ts"
+lit_dependencies:
+  - wrangler
+  - "@cloudflare/*"
+  - "@cloudflare/vitest-pool-workers"
+limits:
+  max_diff_lines: 300
+  max_diff_files: 8
+toolchain:
+  runtime:
+    node: "24"
+  setup:
+    - "npm ci"
+  checks:
+    - { name: typecheck, run: "npm run typecheck" }
+    - { name: lint, run: "npm run lint" }
+    - { name: test, run: "npm test" }
+  format: "npm run format"
+  single_test: "npx vitest run {file}"
+  dependency_files:
+    - "package.json"
+    - "package-lock.json"
+  ignore_dirs:
+    - ".wrangler"
+  env_prefixes:
+    - "NODE_"
+    - "npm_"
+protected:
+  commands:
+    - "\\bwrangler\\b"
+    - "(?:npm|pnpm|yarn)\\s+(?:run\\s+)?(?:deploy|migrate:remote|eval)\\b"
+  env_markers:
+    - "EVAL_LIVE"
+  paths:
+    - "wrangler.jsonc"
+    - "package.json"
+    - "eval/cassettes/**"
+    - "migrations/**"
+secrets:
+  patterns:
+    - "FANTASY_(?:EMAIL|PASSWORD|SESSION_COOKIE)\\s*[=:]\\s*\\S+"
+    - "DASHBOARD_TOKEN\\s*[=:]\\s*\\S+"
+  names:
+    - "FANTASY_EMAIL"
+    - "FANTASY_PASSWORD"
+    - "FANTASY_SESSION_COOKIE"
+    - "DASHBOARD_TOKEN"
+    - "ALERT_WEBHOOK_URL"
+    - "API_FOOTBALL_KEY"
+context_files:
+  - "AGENTS.md"
+  - ".agents/*.md"
+  - "docs/product-spec.md"
+risk:
+  high_paths:
+    - "src/workflows/**"
+    - "src/ai/**"
+    - "src/api/**"
+    - "src/cron.ts"
+    - "src/env.ts"
+    - "src/session*.ts"
+    - "src/loginProbe.ts"
+    - "src/alert.ts"
+    - "migrations/**"
+    - "wrangler.jsonc"
+    - ".github/**"
+  high_keywords:
+    - "live write"
+    - "DRY_RUN"
+    - "transfer"
+    - "Neuron"
+    - "kill switch"
+    - "session"
+    - "cookie"
+    - "migration"
+    - "LLM provider"
+    - "paid"
+  priority1_signals:
+    - "live-account harm"
+    - "missed deadline"
+    - "session dead"
+    - "5xx"
+    - "decide-commit-error"
+    - "cron-tick-error"
+  never_do:
+    - "Never commit picks, transfers or lineups to the live account"
+    - "Never run live eval (EVAL_LIVE)"
+    - "Never deploy or touch production D1"
+smoke:
+  version:
+    path: "/version"
+    sha_field: "sha"
+    auth_header: "x-dashboard-token"
+  paths:
+    - "/"
+    - "/decisions"
+  expect:
+    status: 200
+    content_type: "text/html"
+deploy:
+  workflow_name: "Deploy"
+  branch: "main"
+honeycomb:
+  enabled: false
+  dataset: "fantasy-football-agent"
+  environment: "production"
+  liveness:
+    filters:
+      - { column: "faas.trigger", op: "exists" }
+    window_minutes: 120
+    min_events: 1
+  errors:
+    filters:
+      - { column: "error", op: "=", value: true }
+    window_minutes: 1440
+    group_by: ["exception.slug"]
+    fallback_group_by: ["error.type", "name"]
