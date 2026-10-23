@@ -1,0 +1,36 @@
+name: Feature or enhancement
+description: A change to what the agent does or shows
+labels: []
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and intent
+      description: What is missing or wrong today, and why it matters.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One checkable statement per line, written so an agent can verify it with a test or a command. Example, "`GET /decisions?page=2` returns 20 rows and a link to page 3".
+      placeholder: |
+        - [ ] ...
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      description: "high = touches live writes, DRY_RUN, transfer or Neuron caps, the kill switch, session handling, migrations or deploy config."
+      options:
+        - low
+        - high
+    validations:
+      required: true
+  - type: textarea
+    id: out_of_scope
+    attributes:
+      label: Out of scope and dependencies
+      description: What must not change. Use `Depends on #N` for prerequisites.

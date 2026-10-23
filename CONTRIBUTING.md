@@ -26,10 +26,11 @@ npx wrangler deploy --dry-run   # validates wrangler.jsonc without deploying
 
 ## CI/CD
 
-- **`.github/workflows/ci.yml`** runs on every pull request and on pushes to
-  any branch other than `main`: install, typecheck, lint, test, and a
-  `wrangler deploy --dry-run` config check. It needs no Cloudflare
-  credentials.
+- **`.github/workflows/ci.yml`** runs on pushes to any branch other than
+  `main` (it has no `pull_request` trigger, so a PR from a fork gets no run;
+  a PR from a branch in this repo is covered by its branch pushes): install,
+  typecheck, lint, test, and a `wrangler deploy --dry-run` config check. It
+  needs no Cloudflare credentials. The check is named `build-and-test`.
 - **`.github/workflows/deploy.yml`** runs only on pushes to `main` (and via
   manual dispatch): it repeats the same checks, applies D1 migrations with
   `wrangler d1 migrations apply fantasy --remote`, then deploys with

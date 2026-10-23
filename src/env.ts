@@ -44,6 +44,11 @@ export interface Env {
   ENTRY_NAME: string;
   ENTRY_FAVOURITE_TEAM: string;
   ENTRY_REGION: string;
+  /** Commit SHA and deploy time, injected by deploy.yml via `--var` (not in
+   * wrangler.jsonc). Optional: local dev and CI dry runs have neither. Served
+   * by `GET /version`; never used for behaviour, so they bypass `parseConfig`. */
+  GIT_SHA?: string;
+  DEPLOYED_AT?: string;
 
   // Secrets (optional: a fresh deploy or 'manual' session mode may lack some)
   FANTASY_EMAIL?: string;
