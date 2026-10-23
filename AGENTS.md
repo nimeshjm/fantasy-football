@@ -56,3 +56,16 @@ The system uses a SQLite-based D1 database with these key tables:
 - **Data-Driven Decisions**: Uses actual fixture results to fit team ratings
 - **Hybrid AI Approach**: LLM decision making with deterministic fallback
 - **Cron-Based Workflow**: Hourly triggers for regular processing
+
+## Working in this repo
+
+Read these before changing anything: `.agents/architecture.md` (module map, data flow, D1 tables, cron rules), `.agents/conventions.md` (commit style, config parsing, test and check commands), `.agents/design.md` (dashboard HTML rules) and `docs/product-spec.md` (purpose, safety rules, what agents must never do). `factory.yml` configures the software factory (dark paths, limits, smoke URLs).
+
+Before opening a PR run `npm run typecheck && npm run lint && npm test`. Keep diffs at or under 300 lines and 8 files. PR bodies must contain `Closes #N`.
+
+Forbidden for agents and automation (a human may run these deliberately):
+- `npm run deploy`, `npx wrangler deploy`, `wrangler secret ...`, `npm run migrate:remote`, any `wrangler ... --remote`
+- `EVAL_LIVE=1` or `npm run eval` with `EVAL_LIVE` set: it spends the production Workers AI Neuron budget
+- `git push`, `gh` write commands, force pushes, editing `.github/**` or `package.json` scripts
+- reading, printing, committing or logging `FANTASY_*`, `DASHBOARD_TOKEN`, `ALERT_WEBHOOK_URL`, `API_FOOTBALL_KEY` or any cookie value
+- changing `DRY_RUN`, `MAX_TRANSFERS_PER_GW`, `NEURON_DAILY_CAP` or the D1 `config` kill switch

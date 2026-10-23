@@ -1,0 +1,40 @@
+name: Bug
+description: Something behaves wrongly
+labels: [bug]
+body:
+  - type: textarea
+    id: observed
+    attributes:
+      label: Observed behaviour
+      description: What happened, with timestamps, decision ids or error slugs (`exception.slug`) where you have them. Never paste cookies, tokens or webhook URLs.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behaviour
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction
+      description: Steps or a failing test sketch. For infra or config causes (secrets, Cloudflare settings, the session cookie) say so; those go to a human.
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Acceptance criteria
+      description: One checkable statement per line. Include "a regression test fails before the fix and passes after".
+      placeholder: |
+        - [ ] ...
+    validations:
+      required: true
+  - type: dropdown
+    id: risk
+    attributes:
+      label: Risk
+      options:
+        - low
+        - high
+    validations:
+      required: true

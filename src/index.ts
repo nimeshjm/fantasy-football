@@ -10,7 +10,7 @@
 
 import { handleDashboard, handleDecisionDetail, handleDecisions } from './dashboard';
 import { handleLoginProbe } from './loginProbe';
-import { notFound } from './adminAuth';
+import { isAuthorized, notFound } from './adminAuth';
 import { runScheduledTick, type CronPorts, type MinimalEvent } from './cron';
 import type { Env } from './env';
 import { FantasyApiClient } from './api/client';
@@ -139,6 +139,12 @@ export default {
     }
     if (request.method === 'GET' && url.pathname === '/decisions') {
       return handleDecisions(request, env);
+    }
+    // Token-gated like the dashboard (404 on any auth failure). The factory's
+    // verifier polls this after each deploy to confirm the live commit.
+    if (request.method === 'GET' && url.pathname === '/version') {
+      if (!isAuthorized(request, env)) return notFound();
+      return Response.json({ sha: env.GIT_SHA ?? 'unknown', deployedAt: env.DEPLOYED_AT ?? null });
     }
     if (request.method === 'GET') {
       const match = /^\/decisions\/(\d+)$/.exec(url.pathname);
