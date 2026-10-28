@@ -9,6 +9,8 @@ lit_dependencies:
   - wrangler
   - "@cloudflare/*"
   - "@cloudflare/vitest-pool-workers"
+# Dependabot bumps confined to package.json and package-lock.json merge on green CI without a human.
+dark_dependency_bumps: true
 limits:
   max_diff_lines: 300
   max_diff_files: 8
