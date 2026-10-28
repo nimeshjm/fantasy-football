@@ -184,9 +184,10 @@ The Worker's `fetch` handler serves a small token-gated HTTP surface alongside t
 | `GET /` | Status dashboard: session health, dry-run/kill-switch state, Neuron spend, recent decisions |
 | `GET /decisions` | Paginated decision history |
 | `GET /decisions/:id` | One decision's full detail (prompt, LLM output, validation, gate outcome) |
+| `GET /version` | Returns JSON `{sha, deployedAt}` from deploy-injected `GIT_SHA` and `DEPLOYED_AT` vars (`"unknown"` and `null` when unset) |
 | `POST /admin/login-probe` | Best-effort check of the password provider, rate-limited to 1/min |
 
-All of it is gated by `DASHBOARD_TOKEN` (`?token=`), and every failure mode — missing token, wrong
+All of it is gated by `DASHBOARD_TOKEN` (accepted as `?token=`, the `x-dashboard-token` header, or `Authorization: Bearer`), and every failure mode — missing token, wrong
 token, unconfigured — returns a bare 404, never a 401, so a request can't distinguish "no dashboard
 here" from "wrong token." Every interpolated value (names, injury text, LLM reasoning) is
 HTML-escaped before rendering, since it's all free text from a live API or an LLM.
