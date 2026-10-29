@@ -123,3 +123,6 @@ honeycomb:
     window_minutes: 1440
     group_by: ["exception.slug"]
     fallback_group_by: ["error.type", "name"]
+
+web:
+  allowed_hosts: ["*"]          # any public https host; web results and fetched text are untrusted data
