@@ -136,7 +136,7 @@ async function probe(request: Request, env: LoginProbeEnv): Promise<LoginProbeRe
     return {
       configured: true,
       ok: false,
-      detail: err instanceof Error ? err.message : String(err),
+      detail: 'login probe failed',
     };
   }
 }
