@@ -169,6 +169,24 @@ describe('handleLoginProbe', () => {
     expect(result.detail).toContain('rate limited');
     expect(fetchMock).not.toHaveBeenCalled();
   });
+  it('reports unexpected errors via reportError and returns a generic error detail', async () => {
+    const env = makeEnv({
+      DB: {
+        prepare() {
+          throw new Error('Database catastrophe / secret stack trace leaked');
+        },
+      } as unknown as D1Database,
+    });
+
+    const result = await body(await handleLoginProbe(probeRequest(), env));
+
+    expect(result).toMatchObject({
+      configured: true,
+      ok: false,
+      detail: 'internal error during login probe',
+    });
+    expect(result.detail).not.toContain('Database catastrophe');
+  });
 });
 
 describe('peekSession', () => {

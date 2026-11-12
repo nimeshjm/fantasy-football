@@ -43,6 +43,7 @@ import {
   LOGIN_PROBE_LAST_AT_KEY,
   LOGIN_PROBE_MIN_INTERVAL_MS,
 } from './sessionHealth';
+import { reportError } from './telemetry';
 
 export interface LoginProbeEnv extends AdminAuthEnv, DbEnv {
   FANTASY_BASE_URL: string;
@@ -69,11 +70,24 @@ export async function handleLoginProbe(request: Request, env: LoginProbeEnv): Pr
   // loaded with no bindings, not throw.
   if (!isAuthorized(request, env)) return notFound();
 
-  const result = await probe(request, env);
-  return new Response(JSON.stringify(result, null, 2), {
-    status: 200,
-    headers: { 'content-type': 'application/json; charset=utf-8' },
-  });
+  try {
+    const result = await probe(request, env);
+    return new Response(JSON.stringify(result, null, 2), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  } catch (err) {
+    reportError({ slug: 'login-probe-error', err });
+    const result: LoginProbeResult = {
+      configured: true,
+      ok: false,
+      detail: 'internal error during login probe',
+    };
+    return new Response(JSON.stringify(result, null, 2), {
+      status: 200,
+      headers: { 'content-type': 'application/json; charset=utf-8' },
+    });
+  }
 }
 
 async function probe(request: Request, env: LoginProbeEnv): Promise<LoginProbeResult> {
@@ -122,7 +136,7 @@ async function probe(request: Request, env: LoginProbeEnv): Promise<LoginProbeRe
     return {
       configured: true,
       ok: false,
-      detail: err instanceof Error ? err.message : String(err),
+      detail: 'login probe failed',
     };
   }
 }
