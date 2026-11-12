@@ -111,6 +111,45 @@ export function getEventLive(client: FantasyApiClient, event: number): Promise<E
   return client.get<EventLive>(`event/${event}/live/`);
 }
 
+export interface DreamTeam {
+  event: number;
+  players: {
+    element: number;
+    position: number;
+    points: number;
+  }[];
+  formation: string;
+}
+
+export function getDreamTeam(client: FantasyApiClient, event: number): Promise<DreamTeam> {
+  return client.get<DreamTeam>(`dream-team/${event}/`);
+}
+
+export function compareDreamTeam(
+  dreamTeam: DreamTeam,
+  eventLive: EventLive,
+): {
+  official: number[];
+  legacy: number[];
+  matches: number[];
+  missingInLegacy: number[];
+  extraInLegacy: number[];
+} {
+  const official = dreamTeam.players.map((p) => p.element);
+  const legacy = eventLive.elements.filter((e) => e.stats['in_dreamteam'] === 1).map((e) => e.id);
+
+  const officialSet = new Set(official);
+  const legacySet = new Set(legacy);
+
+  return {
+    official,
+    legacy,
+    matches: official.filter((id) => legacySet.has(id)),
+    missingInLegacy: official.filter((id) => !legacySet.has(id)),
+    extraInLegacy: legacy.filter((id) => !officialSet.has(id)),
+  };
+}
+
 /** Single-player detail only. Never call this in a loop over a roster —
  * that is exactly the 656-subrequest fan-out event/{n}/live/ exists to
  * avoid, and it would blow the 50-subrequest-per-invocation cap. */
