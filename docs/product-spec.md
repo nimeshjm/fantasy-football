@@ -67,18 +67,19 @@ The `https://fantasy.ligaportugal.pt/dream-team/<gameweek>` page is backed by th
 - **Response Shape**:
   ```json
   {
-    "event": 11,
-    "players": [
-      { "element": 123, "position": 1, "points": 10 },
+    "top_player": { "id": 294, "points": 13 },
+    "team": [
+      { "element": 123, "points": 10, "position": 1 },
       ...
-    ],
-    "formation": "4-3-3"
+    ]
   }
   ```
 - **Fields**:
-  - `event`: The gameweek number.
-  - `players`: Array of 11 players.
+  - `top_player`: The player with the most points in the Dream Team.
+  - `team`: Array of 11 players.
     - `element`: Player ID.
-    - `position`: Position ID (1=GK, 2=DEF, 3=MID, 4=FWD).
     - `points`: Points scored in the gameweek.
-  - `formation`: The formation string (e.g., "4-3-3").
+    - `position`: The slot (1 to 11) in the published XI.
+
+For gameweek 11, the official XI and the `in_dreamteam` flags match exactly.
+
