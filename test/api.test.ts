@@ -101,55 +101,55 @@ describe('FantasyApiClient', () => {
     const promise = getEventLive(client, 4);
 
     // Let the backoff timer for attempt 1 elapse so the retry can fire.
-
-    it('fetches dream team', async () => {
-      const dreamTeam = {
-        event: 11,
-        players: [
-          { element: 1, position: 1, points: 10 },
-          { element: 2, position: 2, points: 8 },
-        ],
-        formation: '4-3-3',
-      };
-      fetchMock.mockResolvedValueOnce(jsonResponse(200, dreamTeam));
-
-      const client = new FantasyApiClient(BASE_URL);
-      const result = await getDreamTeam(client, 11);
-
-      expect(result).toEqual(dreamTeam);
-
-      it('compares dream team with legacy flags', () => {
-        const dreamTeam = {
-          event: 11,
-          players: [
-            { element: 1, position: 1, points: 10 },
-            { element: 2, position: 2, points: 8 },
-          ],
-          formation: '4-3-3',
-        };
-        const eventLive = {
-          elements: [
-            { id: 1, stats: { in_dreamteam: 1 }, explain: [] },
-            { id: 3, stats: { in_dreamteam: 1 }, explain: [] },
-          ],
-        };
-
-        const result = compareDreamTeam(dreamTeam, eventLive);
-
-        expect(result.matches).toEqual([1]);
-        expect(result.missingInLegacy).toEqual([2]);
-        expect(result.extraInLegacy).toEqual([3]);
-      });
-      expect(fetchMock).toHaveBeenCalledWith(
-        expect.stringContaining('dream-team/11/'),
-        expect.anything(),
-      );
-    });
     await vi.advanceTimersByTimeAsync(5000);
 
     const result = await promise;
     expect(result).toEqual({ elements: [] });
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('fetches dream team', async () => {
+    const dreamTeam = {
+      event: 11,
+      players: [
+        { element: 1, position: 1, points: 10 },
+        { element: 2, position: 2, points: 8 },
+      ],
+      formation: '4-3-3',
+    };
+    fetchMock.mockResolvedValueOnce(jsonResponse(200, dreamTeam));
+
+    const client = new FantasyApiClient(BASE_URL);
+    const result = await getDreamTeam(client, 11);
+
+    expect(result).toEqual(dreamTeam);
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining('dream-team/11/'),
+      expect.anything(),
+    );
+  });
+
+  it('compares dream team with legacy flags', () => {
+    const dreamTeam = {
+      event: 11,
+      players: [
+        { element: 1, position: 1, points: 10 },
+        { element: 2, position: 2, points: 8 },
+      ],
+      formation: '4-3-3',
+    };
+    const eventLive = {
+      elements: [
+        { id: 1, stats: { in_dreamteam: 1 }, explain: [] },
+        { id: 3, stats: { in_dreamteam: 1 }, explain: [] },
+      ],
+    };
+
+    const result = compareDreamTeam(dreamTeam, eventLive);
+
+    expect(result.matches).toEqual([1]);
+    expect(result.missingInLegacy).toEqual([2]);
+    expect(result.extraInLegacy).toEqual([3]);
   });
 
   it('gives up after exhausting retries on repeated 5xx', async () => {
