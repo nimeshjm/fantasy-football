@@ -57,3 +57,28 @@ Candidates for triage to turn into issues (each is `size:S` or `size:M` unless n
    - Slugs: `cron-tick-error`, `fixtures-refresh-error`, `cron-dispatch-*`, `decide-commit-error`. `risk:low`, dark.
 8. **Add root-span attributes for the tick result.** Add `app.deadline_action` and `app.session_healthy` as attributes on the active span in `scheduled`.
    - Attributes only, no new spans; guarded so no active span is a no-op; unit test with a fake span. `risk:low`.
+
+## Dream Team API
+
+The `https://fantasy.ligaportugal.pt/dream-team/<gameweek>` page is backed by the following API endpoint:
+
+- **URL**: `https://fantasy.ligaportugal.pt/api/dream-team/<gameweek>/`
+- **Auth**: None (public).
+- **Response Shape**:
+  ```json
+  {
+    "event": 11,
+    "players": [
+      { "element": 123, "position": 1, "points": 10 },
+      ...
+    ],
+    "formation": "4-3-3"
+  }
+  ```
+- **Fields**:
+  - `event`: The gameweek number.
+  - `players`: Array of 11 players.
+    - `element`: Player ID.
+    - `position`: Position ID (1=GK, 2=DEF, 3=MID, 4=FWD).
+    - `points`: Points scored in the gameweek.
+  - `formation`: The formation string (e.g., "4-3-3").
