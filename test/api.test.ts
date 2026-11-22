@@ -110,12 +110,20 @@ describe('FantasyApiClient', () => {
 
   it('fetches dream team', async () => {
     const dreamTeam = {
-      event: 11,
-      players: [
-        { element: 1, position: 1, points: 10 },
-        { element: 2, position: 2, points: 8 },
+      top_player: { id: 294, points: 13 },
+      team: [
+        { element: 55, points: 9, position: 1 },
+        { element: 80, points: 9, position: 2 },
+        { element: 247, points: 9, position: 3 },
+        { element: 265, points: 9, position: 4 },
+        { element: 294, points: 13, position: 5 },
+        { element: 304, points: 9, position: 6 },
+        { element: 436, points: 9, position: 7 },
+        { element: 442, points: 9, position: 8 },
+        { element: 480, points: 9, position: 9 },
+        { element: 488, points: 9, position: 10 },
+        { element: 592, points: 9, position: 11 },
       ],
-      formation: '4-3-3',
     };
     fetchMock.mockResolvedValueOnce(jsonResponse(200, dreamTeam));
 
@@ -129,27 +137,47 @@ describe('FantasyApiClient', () => {
     );
   });
 
-  it('compares dream team with legacy flags', () => {
+  it('compares dream team with boolean flags', () => {
     const dreamTeam = {
-      event: 11,
-      players: [
-        { element: 1, position: 1, points: 10 },
-        { element: 2, position: 2, points: 8 },
+      top_player: { id: 294, points: 13 },
+      team: [
+        { element: 55, points: 9, position: 1 },
+        { element: 80, points: 9, position: 2 },
+        { element: 247, points: 9, position: 3 },
+        { element: 265, points: 9, position: 4 },
+        { element: 294, points: 13, position: 5 },
+        { element: 304, points: 9, position: 6 },
+        { element: 436, points: 9, position: 7 },
+        { element: 442, points: 9, position: 8 },
+        { element: 480, points: 9, position: 9 },
+        { element: 488, points: 9, position: 10 },
+        { element: 592, points: 9, position: 11 },
       ],
-      formation: '4-3-3',
     };
     const eventLive = {
       elements: [
-        { id: 1, stats: { in_dreamteam: 1 }, explain: [] },
-        { id: 3, stats: { in_dreamteam: 1 }, explain: [] },
+        { id: 55, stats: { in_dreamteam: true }, explain: [] },
+        { id: 80, stats: { in_dreamteam: true }, explain: [] },
+        { id: 247, stats: { in_dreamteam: true }, explain: [] },
+        { id: 265, stats: { in_dreamteam: true }, explain: [] },
+        { id: 294, stats: { in_dreamteam: true }, explain: [] },
+        { id: 304, stats: { in_dreamteam: true }, explain: [] },
+        { id: 436, stats: { in_dreamteam: true }, explain: [] },
+        { id: 442, stats: { in_dreamteam: true }, explain: [] },
+        { id: 480, stats: { in_dreamteam: true }, explain: [] },
+        { id: 488, stats: { in_dreamteam: true }, explain: [] },
+        { id: 592, stats: { in_dreamteam: true }, explain: [] },
+        { id: 999, stats: { in_dreamteam: false }, explain: [] },
       ],
     };
 
     const result = compareDreamTeam(dreamTeam, eventLive);
 
-    expect(result.matches).toEqual([1]);
-    expect(result.missingInLegacy).toEqual([2]);
-    expect(result.extraInLegacy).toEqual([3]);
+    expect(result.matches.length).toBe(11);
+    expect(result.matches).toContain(55);
+    expect(result.matches).toContain(592);
+    expect(result.missingInLegacy).toEqual([]);
+    expect(result.extraInLegacy).toEqual([]);
   });
 
   it('gives up after exhausting retries on repeated 5xx', async () => {

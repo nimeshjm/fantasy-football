@@ -96,7 +96,7 @@ export interface LiveElement {
   /** Raw per-stat counters plus total_points/bonus for this gameweek. Kept
    * loose (not RawStats) since this endpoint's stats block has not been
    * field-for-field verified against RawStats. */
-  stats: Record<string, number>;
+  stats: Record<string, number | boolean>;
   explain: LiveExplainFixture[];
 }
 
@@ -112,13 +112,15 @@ export function getEventLive(client: FantasyApiClient, event: number): Promise<E
 }
 
 export interface DreamTeam {
-  event: number;
-  players: {
-    element: number;
-    position: number;
+  top_player: {
+    id: number;
     points: number;
+  };
+  team: {
+    element: number;
+    points: number;
+    position: number;
   }[];
-  formation: string;
 }
 
 export function getDreamTeam(client: FantasyApiClient, event: number): Promise<DreamTeam> {
@@ -135,8 +137,10 @@ export function compareDreamTeam(
   missingInLegacy: number[];
   extraInLegacy: number[];
 } {
-  const official = dreamTeam.players.map((p) => p.element);
-  const legacy = eventLive.elements.filter((e) => e.stats['in_dreamteam'] === 1).map((e) => e.id);
+  const official = dreamTeam.team.map((p) => p.element);
+  const legacy = eventLive.elements
+    .filter((e) => e.stats['in_dreamteam'] === true)
+    .map((e) => e.id);
 
   const officialSet = new Set(official);
   const legacySet = new Set(legacy);
