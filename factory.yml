@@ -39,9 +39,11 @@ protected:
     - "(?:npm|pnpm|yarn)\\s+(?:run\\s+)?(?:deploy|migrate:remote|eval)\\b"
   env_markers:
     - "EVAL_LIVE"
+  # package.json is editable so the bug-fixer can land dependency and security bumps.
+  # Any factory PR touching it is autonomy:lit (not in dark_paths), so a named amigo still approves it,
+  # and risk:high issues still stop at the plan for plan:approved.
   paths:
     - "wrangler.jsonc"
-    - "package.json"
     - "eval/cassettes/**"
     - "migrations/**"
 secrets:
