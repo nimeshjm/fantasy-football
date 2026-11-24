@@ -24,7 +24,17 @@ import {
   type EventLive,
   type LiveExplainFixture,
 } from '../api/endpoints';
-import { getAllFixtures, saveRatingsModel, upsertFixtures, upsertGwStats } from '../db';
+import { fetchPlayerAwards, matchAwardPlayer } from '../api/playerAwards';
+import {
+  getAllElements,
+  getAllFixtures,
+  getAllTeams,
+  saveRatingsModel,
+  upsertFixtures,
+  upsertGwStats,
+  upsertPlayerAwards,
+  type PlayerAwardRow,
+} from '../db';
 import { fitTeamRatings } from '../model/ratings';
 import type { GwStats, RawStats } from '../types';
 
@@ -170,6 +180,35 @@ export class IngestWorkflow extends WorkflowEntrypoint<Env, IngestWorkflowParams
       // goals figure, with no error raised anywhere.
       await saveRatingsModel(env.DB, model, new Date().toISOString());
       return model.ratings.size;
+    });
+
+    await step.do('refresh-player-awards', async () => {
+      const awards = await fetchPlayerAwards();
+      if (awards.length === 0) return 0;
+
+      const [elements, teams] = await Promise.all([
+        getAllElements(env.DB),
+        getAllTeams(env.DB),
+      ]);
+      const now = new Date().toISOString();
+      const rows: PlayerAwardRow[] = [];
+      for (const a of awards) {
+        const elementId = matchAwardPlayer(elements, teams, a.playerName, a.teamShortName);
+        if (elementId !== null) {
+          rows.push({
+            element_id: elementId,
+            award_type: a.awardType,
+            period_key: a.periodKey,
+            fixture_id: a.fixtureId,
+            source_player_name: a.playerName,
+            fetched_at: now,
+          });
+        }
+      }
+      if (rows.length > 0) {
+        await upsertPlayerAwards(env.DB, rows);
+      }
+      return rows.length;
     });
 
     return { events, teamsRated: rated };

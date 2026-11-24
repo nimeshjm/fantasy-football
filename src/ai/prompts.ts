@@ -156,6 +156,9 @@ export interface ShortlistEntry {
    * (not `''`) when the active projection strategy loaded no team ratings --
    * `ep-next` never reads them -- same convention as `europeNote`. */
   opponentNote?: string;
+  /** Official Primeira Liga awards note (issue #106), e.g.
+   * "POTM x3 (GW5,GW7,GW9), POTW GW8, month Sep". Absent when none. */
+  awardsNote?: string;
 }
 
 /** One candidate transfer offered to the model. Already legality- and

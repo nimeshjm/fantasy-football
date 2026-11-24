@@ -78,6 +78,15 @@ export interface UefaAppearanceRow {
   fetchedAt: string;
 }
 
+
+export interface PlayerAwardRow {
+  element_id: number;
+  award_type: 'match' | 'week' | 'month';
+  period_key: string;
+  fixture_id: number | null;
+  source_player_name: string;
+  fetched_at: string;
+}
 export interface TeamRatingRow {
   team_id: number;
   attack: number;
