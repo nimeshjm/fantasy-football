@@ -14,6 +14,7 @@ export * from './gwStats';
 export * from './historyPast';
 export * from './fixtures';
 export * from './uefaAppearances';
+export * from './playerAwards';
 export * from './teamRatings';
 export * from './projections';
 export * from './squadState';
